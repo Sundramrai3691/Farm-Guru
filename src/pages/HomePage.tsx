@@ -189,20 +189,25 @@ const HomePage = () => {
               </Button>
               
               <Button
-                asChild
-                variant="outline"
-                size="lg"
-                className="btn-hover border-2 border-primary/30 text-foreground hover:bg-primary/10 hover:border-primary/50 px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-semibold rounded-radius-lg w-full sm:w-auto min-w-[200px] shadow-lg bg-background/80 backdrop-blur-sm"
-              >
-                <Link 
-                  to="/query"
-                  onClick={() => handleCTAClick('ask_ai_assistant')}
-                  className="flex items-center justify-center w-full"
-                >
-                  <SparklesIcon className="w-5 h-5 mr-2" />
-                  {language === 'en' ? 'Ask AI Assistant' : 'AI सहायक से पूछें'}
-                </Link>
-              </Button>
+  asChild
+  variant="outline"
+  size="lg"
+  className="btn-hover border-primary/30 text-foreground hover:bg-primary/10 px-8 py-4 text-lg font-semibold rounded-radius-lg"
+>
+  <Link
+    to="/query"
+    onClick={() =>
+      analytics.track('cta_clicked', {
+        button: 'ask_ai_assistant',
+        location: 'hero',
+      })
+    }
+  >
+    <SparklesIcon className="w-5 h-5 mr-2" />
+    {language === 'en' ? 'Ask AI Assistant' : 'AI सहायक से पूछें'}
+  </Link>
+</Button>
+
             </motion.div>
 
             {/* Enhanced Quick Prompts with better contrast */}
@@ -301,17 +306,23 @@ const HomePage = () => {
                       {feature.description}
                     </p>
                     <Button
-                      asChild
-                      variant="ghost"
-                      className="mt-auto group-hover:bg-primary/10 group-hover:text-primary transition-colors font-medium"
-                    >
-                      <Link 
-                        to={feature.href}
-                        onClick={() => handleFeatureClick(feature)}
-                      >
-                        {language === 'en' ? 'Explore' : 'एक्सप्लोर करें'} →
-                      </Link>
-                    </Button>
+  asChild
+  variant="ghost"
+  className="mt-auto group-hover:bg-primary/10 transition-colors"
+>
+  <Link
+    to={feature.href}
+    onClick={() =>
+      analytics.track('feature_card_clicked', {
+        feature: feature.title,
+        href: feature.href,
+      })
+    }
+  >
+    {language === 'en' ? 'Explore' : 'एक्सप्लोर करें'} →
+  </Link>
+</Button>
+
                   </CardContent>
                 </Card>
               </motion.div>

@@ -1,14 +1,17 @@
 import logging
 import os
+from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 # Import routes
-from app.routes import query, upload, weather, market, policy, chem_reco
+from app.routes import query, upload, weather, market, policy, chem_reco, analytics
 from app.config import DEBUG, DEMO_MODE
 from app.db import db
+
 
 # Configure logging
 logging.basicConfig(
@@ -27,17 +30,17 @@ app = FastAPI(
 )
 
 # CORS middleware (frontend + prod)
+# CORS middleware (dev: allow all origins to avoid preflight 400)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",       # Vite dev server
-        "http://localhost:3000",       # Alt dev port
-        "https://farm-guru.vercel.app" # Production
-    ],
+    allow_origins=["*"],            # TEMPORARY for local dev only; restrict in prod
+    allow_origin_regex=None,
     allow_credentials=True,
-    allow_methods=["*"],  # Allow GET, POST, OPTIONS etc.
-    allow_headers=["*"],  # Allow JSON, Authorization etc.
+    allow_methods=["*"],  
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
+
 
 # Mount static files (local image storage)
 os.makedirs("app/static", exist_ok=True)
@@ -50,7 +53,7 @@ app.include_router(weather.router)
 app.include_router(market.router)
 app.include_router(policy.router)
 app.include_router(chem_reco.router)
-
+app.include_router(analytics.router)
 
 @app.get("/")
 async def root():
@@ -130,11 +133,18 @@ async def seed_database():
         raise HTTPException(status_code=500, detail=f"Seeding failed: {str(e)}")
 
 
+# Pydantic model for analytics input
+class AnalyticsEvent(BaseModel):
+    event_name: str
+    payload: Dict[str, Any] = {}
+
+
 @app.post("/api/analytics")
-async def log_analytics(event_data: dict):
+async def log_analytics(event: AnalyticsEvent):
     """Log analytics events (privacy-friendly)"""
     try:
-        logger.info(f"Analytics event: {event_data.get('event_name', 'unknown')}")
+        logger.info(f"Analytics event: {event.event_name}")
+        # Fallback: you can add logic to write to local file/db if needed
         return {"status": "logged"}
     except Exception as e:
         logger.error(f"Analytics logging failed: {e}")
