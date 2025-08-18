@@ -15,6 +15,7 @@ import {
   UserIcon as UserIconSolid
 } from '@heroicons/react/24/solid';
 import { useTranslation } from '@/lib/i18n';
+import { analytics } from '@/lib/analytics';
 
 const BottomTabs = () => {
   const location = useLocation();
@@ -53,11 +54,18 @@ const BottomTabs = () => {
     },
   ];
 
+  const handleTabClick = (tab: any) => {
+    analytics.track('bottom_tab_clicked', { 
+      tab: tab.href, 
+      label: tab.label 
+    });
+  };
+
   return (
     <motion.nav
       initial={{ y: 100 }}
       animate={{ y: 0 }}
-      className="md:hidden fixed bottom-0 left-0 right-0 z-40 glass border-t border-glass-border safe-area-bottom"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 glass-enhanced border-t border-glass-border safe-area-bottom"
     >
       <div className="flex items-center justify-around px-2 py-2">
         {tabs.map((tab) => {
@@ -69,13 +77,14 @@ const BottomTabs = () => {
               key={tab.href}
               to={tab.href}
               className="flex flex-col items-center justify-center min-w-0 flex-1 px-1 py-2 relative"
+              onClick={() => handleTabClick(tab)}
             >
               <motion.div
                 whileTap={{ scale: 0.95 }}
                 className={`p-2 rounded-radius-lg transition-colors ${
                   isActive 
                     ? 'text-primary bg-primary/10' 
-                    : 'text-muted-foreground hover:text-foreground'
+                    : 'text-foreground/70 hover:text-foreground hover:bg-muted/30'
                 }`}
               >
                 <Icon className="w-5 h-5" />
@@ -93,7 +102,7 @@ const BottomTabs = () => {
               
               <span 
                 className={`text-xs mt-1 font-medium truncate max-w-full ${
-                  isActive ? 'text-primary' : 'text-muted-foreground'
+                  isActive ? 'text-primary' : 'text-foreground/70'
                 }`}
               >
                 {tab.label}

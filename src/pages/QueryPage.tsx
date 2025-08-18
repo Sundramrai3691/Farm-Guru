@@ -52,21 +52,20 @@ const QueryPage = () => {
           setUploadedImage(uploadResult);
           imageId = uploadResult.image_id;
           
-          toast({
-            title: "Image uploaded successfully",
-            description: `Detected: ${uploadResult.label} (${Math.round(uploadResult.confidence * 100)}% confidence)`,
-          });
+          // Only show success toast if not using fallback
+          if (!uploadResult.meta?.fallback_reason) {
+            toast({
+              title: "Image uploaded successfully",
+              description: `Detected: ${uploadResult.label} (${Math.round(uploadResult.confidence * 100)}% confidence)`,
+            });
+          }
         } catch (uploadError) {
           console.error('Image upload failed:', uploadError);
-          toast({
-            title: "Image upload failed",
-            description: "Proceeding with text query only",
-            variant: "destructive",
-          });
+          // Don't show error toast as fallback will handle it gracefully
         }
       }
 
-      // Submit query
+      // Submit query with robust error handling
       const queryResult = await apiClient.query({
         text: query,
         lang: language,
@@ -76,20 +75,31 @@ const QueryPage = () => {
       setResponse(queryResult);
       analytics.track('query_completed', { 
         confidence: queryResult.confidence,
-        has_image: !!imageId 
+        has_image: !!imageId,
+        mode: queryResult.meta?.mode || 'unknown'
       });
 
-      toast({
-        title: "Query completed",
-        description: `Confidence: ${Math.round(queryResult.confidence * 100)}%`,
-      });
+      // Show appropriate feedback based on response mode
+      if (queryResult.meta?.mode === 'fallback') {
+        toast({
+          title: "Query processed (offline mode)",
+          description: "Using cached knowledge while services are reconnecting",
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Query completed",
+          description: `Confidence: ${Math.round(queryResult.confidence * 100)}%`,
+        });
+      }
     } catch (error) {
       console.error('Query failed:', error);
       analytics.errorOccurred('query_failed', 'QueryPage');
       
+      // This should rarely happen due to fallback mechanisms
       toast({
-        title: "Query failed",
-        description: error instanceof Error ? error.message : "Please check your connection and try again.",
+        title: "Query processing issue",
+        description: "Please try again or check your connection",
         variant: "destructive",
       });
     } finally {
@@ -117,10 +127,15 @@ const QueryPage = () => {
     recognition.continuous = false;
     recognition.interimResults = false;
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setQuery(transcript);
       setIsListening(false);
+      
+      toast({
+        title: "Voice captured",
+        description: "Your voice input has been converted to text",
+      });
     };
 
     recognition.onerror = () => {
@@ -136,7 +151,16 @@ const QueryPage = () => {
       setIsListening(false);
     };
 
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (error) {
+      setIsListening(false);
+      toast({
+        title: "Voice input error",
+        description: "Unable to start voice recognition",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -150,6 +174,16 @@ const QueryPage = () => {
         });
         return;
       }
+      
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Invalid file type",
+          description: "Please select a valid image file.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       setImageFile(file);
       analytics.featureUsed('image_upload');
     }
@@ -180,7 +214,7 @@ const QueryPage = () => {
             <SparklesIcon className="w-8 h-8 text-primary" />
             {t('askQuestion')}
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-foreground/80 font-medium">
             {language === 'en' 
               ? 'Ask anything about farming, crops, weather, or agricultural practices'
               : 'कृषि, फसल, मौसम, या कृषि प्रथाओं के बारे में कुछ भी पूछें'
@@ -195,17 +229,17 @@ const QueryPage = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('askQuestion')}
-              className="min-h-[120px] resize-none border-glass-border focus:ring-primary"
+              className="min-h-[120px] resize-none border-glass-border focus:ring-primary text-foreground"
               disabled={isLoading}
             />
 
-            {/* Image Upload */}
+            {/* Image Upload Preview */}
             {imageFile && (
               <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-radius">
                 <PhotoIcon className="w-5 h-5 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">{imageFile.name}</span>
+                <span className="text-sm text-foreground font-medium">{imageFile.name}</span>
                 {uploadedImage && (
-                  <span className="text-xs text-success">
+                  <span className="text-xs text-success font-medium">
                     ✓ {uploadedImage.label} ({Math.round(uploadedImage.confidence * 100)}%)
                   </span>
                 )}
@@ -216,19 +250,19 @@ const QueryPage = () => {
                     setImageFile(null);
                     setUploadedImage(null);
                   }}
-                  className="ml-auto text-xs"
+                  className="ml-auto text-xs hover:bg-destructive/10 hover:text-destructive"
                 >
                   Remove
                 </Button>
               </div>
             )}
 
-            {/* Controls */}
-            <div className="flex flex-wrap gap-3">
+            {/* Enhanced Controls with better responsiveness */}
+            <div className="flex flex-col sm:flex-row flex-wrap gap-3">
               <Button
                 onClick={handleSubmit}
                 disabled={!query.trim() || isLoading}
-                className="btn-hover bg-primary hover:bg-primary-light"
+                className="btn-hover bg-primary hover:bg-primary-light flex-1 sm:flex-none min-w-[120px]"
               >
                 <PaperAirplaneIcon className="w-4 h-4 mr-2" />
                 {isLoading ? t('loading') : t('submit')}
@@ -238,7 +272,7 @@ const QueryPage = () => {
                 variant="outline"
                 onClick={handleVoiceInput}
                 disabled={isListening || isLoading}
-                className="btn-hover"
+                className="btn-hover flex-1 sm:flex-none min-w-[100px]"
               >
                 <MicrophoneIcon className={`w-4 h-4 mr-2 ${isListening ? 'animate-pulse text-destructive' : ''}`} />
                 {isListening ? t('speakNow') : 'Voice'}
@@ -248,7 +282,7 @@ const QueryPage = () => {
                 variant="outline"
                 onClick={() => document.getElementById('image-upload')?.click()}
                 disabled={isLoading}
-                className="btn-hover"
+                className="btn-hover flex-1 sm:flex-none min-w-[120px]"
               >
                 <PhotoIcon className="w-4 h-4 mr-2" />
                 {t('uploadImage')}
@@ -265,7 +299,7 @@ const QueryPage = () => {
           </CardContent>
         </Card>
 
-        {/* Loading State */}
+        {/* Enhanced Loading State */}
         {isLoading && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -284,7 +318,7 @@ const QueryPage = () => {
           </motion.div>
         )}
 
-        {/* Response */}
+        {/* Enhanced Response Display */}
         {response && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -294,11 +328,11 @@ const QueryPage = () => {
             {/* Main Answer */}
             <Card className="glass-card">
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center justify-between">
+                <CardTitle className="flex items-center justify-between flex-wrap gap-2">
                   <span className="text-lg font-semibold">
                     {language === 'en' ? 'AI Response' : 'AI का उत्तर'}
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {(() => {
                       const ConfidenceIcon = getConfidenceIcon(response.confidence);
                       return (
@@ -314,7 +348,7 @@ const QueryPage = () => {
                     {response.meta?.mode && (
                       <Badge variant="secondary" className="text-xs">
                         {response.meta.mode === 'demo' ? 'Demo Mode' : 
-                         response.meta.mode === 'fallback' ? 'Fallback' : 'AI'}
+                         response.meta.mode === 'fallback' ? 'Offline Mode' : 'AI'}
                       </Badge>
                     )}
                   </div>
@@ -363,7 +397,7 @@ const QueryPage = () => {
                     {response.sources.map((source, index) => (
                       <div key={index} className="p-3 bg-muted/30 rounded-radius">
                         <h4 className="font-medium text-foreground mb-1">{source.title}</h4>
-                        <p className="text-sm text-muted-foreground mb-2">{source.snippet}</p>
+                        <p className="text-sm text-foreground/70 mb-2">{source.snippet}</p>
                         {source.url && (
                           <a 
                             href={source.url} 
@@ -382,20 +416,27 @@ const QueryPage = () => {
               </Card>
             )}
 
-            {/* Show demo mode banner if applicable */}
-            {response?.meta?.mode === 'demo' && (
+            {/* Enhanced fallback mode banner */}
+            {(response?.meta?.mode === 'demo' || response?.meta?.mode === 'fallback') && (
               <Card className="glass-card border-warning/50 bg-warning/5">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 text-warning">
                     <ExclamationTriangleIcon className="w-5 h-5" />
                     <span className="font-medium">
-                      {language === 'en' ? 'Demo Mode' : 'डेमो मोड'}
+                      {response.meta.mode === 'demo' 
+                        ? (language === 'en' ? 'Demo Mode' : 'डेमो मोड')
+                        : (language === 'en' ? 'Offline Mode' : 'ऑफलाइन मोड')
+                      }
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-1">
+                  <p className="text-sm text-foreground/70 mt-1">
                     {language === 'en' 
-                      ? 'This response was generated using fallback logic. For production use, configure HF_API_KEY.'
-                      : 'यह प्रतिक्रिया फॉलबैक लॉजिक का उपयोग करके उत्पन्न की गई थी। उत्पादन उपयोग के लिए, HF_API_KEY कॉन्फ़िगर करें।'
+                      ? response.meta.mode === 'demo'
+                        ? 'This response was generated using demo logic. For production use, configure API keys.'
+                        : 'Using cached knowledge while reconnecting to services. Functionality is maintained.'
+                      : response.meta.mode === 'demo'
+                        ? 'यह प्रतिक्रिया डेमो लॉजिक का उपयोग करके उत्पन्न की गई थी। उत्पादन उपयोग के लिए, API कीज़ कॉन्फ़िगर करें।'
+                        : 'सेवाओं से पुनः कनेक्ट करते समय कैश्ड ज्ञान का उपयोग कर रहे हैं। कार्यक्षमता बनी हुई है।'
                     }
                   </p>
                 </CardContent>

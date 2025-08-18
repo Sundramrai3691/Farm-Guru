@@ -10,7 +10,7 @@ import {
   GlobeAltIcon
 } from '@heroicons/react/24/outline';
 import { useTranslation } from '@/lib/i18n';
-import farmIcon from '@/assets/farm-icon.svg';
+import { analytics } from '@/lib/analytics';
 
 const Header = () => {
   const [isDark, setIsDark] = useState(false);
@@ -39,10 +39,19 @@ const Header = () => {
       document.documentElement.classList.remove('dark');
       localStorage.setItem('theme', 'light');
     }
+
+    analytics.track('theme_toggled', { theme: newIsDark ? 'dark' : 'light' });
   };
 
   const toggleLanguage = () => {
-    setLanguage(language === 'en' ? 'hi' : 'en');
+    const newLanguage = language === 'en' ? 'hi' : 'en';
+    setLanguage(newLanguage);
+    analytics.track('language_changed', { language: newLanguage });
+  };
+
+  const handleNavClick = (page: string, label: string) => {
+    analytics.track('nav_clicked', { page, label });
+    setIsMobileMenuOpen(false);
   };
 
   const navLinks = [
@@ -58,13 +67,19 @@ const Header = () => {
     <motion.header 
       initial={{ y: -100 }}
       animate={{ y: 0 }}
-      className="fixed top-0 left-0 right-0 z-50 glass border-b border-glass-border"
+      className="fixed top-0 left-0 right-0 z-50 glass border-b border-glass-border backdrop-blur-md"
     >
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-3 hover:scale-105 transition-transform">
-          <img src={farmIcon} alt="Farm-Guru" className="w-8 h-8" />
-          <span className="font-bold text-xl hero-text hidden sm:block">
+        <Link 
+          to="/" 
+          className="flex items-center gap-3 hover:scale-105 transition-transform"
+          onClick={() => analytics.track('logo_clicked')}
+        >
+          <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary-dark rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-sm">FG</span>
+          </div>
+          <span className="font-bold text-xl text-foreground hidden sm:block">
             Farm-Guru
           </span>
         </Link>
@@ -78,9 +93,9 @@ const Header = () => {
               className={`px-4 py-2 rounded-radius text-sm font-medium transition-all duration-200 relative ${
                 location.pathname === link.href
                   ? 'text-primary bg-primary/10'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  : 'text-foreground/80 hover:text-foreground hover:bg-muted/50'
               }`}
-              onClick={() => analytics.track('nav_clicked', { page: link.href, label: link.label })}
+              onClick={() => handleNavClick(link.href, link.label)}
             >
               {link.label}
               {location.pathname === link.href && (
@@ -102,10 +117,10 @@ const Header = () => {
             variant="ghost"
             size="sm"
             onClick={toggleLanguage}
-            className="hidden sm:flex items-center gap-1"
+            className="hidden sm:flex items-center gap-1 text-foreground/80 hover:text-foreground"
           >
             <GlobeAltIcon className="w-4 h-4" />
-            <span className="text-xs">{language.toUpperCase()}</span>
+            <span className="text-xs font-medium">{language.toUpperCase()}</span>
           </Button>
 
           {/* Theme Toggle */}
@@ -113,7 +128,7 @@ const Header = () => {
             variant="ghost"
             size="sm"
             onClick={toggleTheme}
-            className="hidden sm:flex"
+            className="hidden sm:flex text-foreground/80 hover:text-foreground"
           >
             {isDark ? (
               <SunIcon className="w-4 h-4" />
@@ -126,7 +141,7 @@ const Header = () => {
           <Button
             variant="ghost"
             size="sm"
-            className="md:hidden"
+            className="md:hidden text-foreground/80 hover:text-foreground"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           >
             {isMobileMenuOpen ? (
@@ -151,16 +166,12 @@ const Header = () => {
               <Link
                 key={link.href}
                 to={link.href}
-                onClick={() => setIsMobileMenuOpen(false)}
+                onClick={() => handleNavClick(link.href, link.label)}
                 className={`block px-4 py-3 rounded-radius text-sm font-medium transition-colors ${
                   location.pathname === link.href
                     ? 'text-primary bg-primary/10'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                    : 'text-foreground/80 hover:text-foreground hover:bg-muted/50'
                 }`}
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  analytics.track('mobile_nav_clicked', { page: link.href, label: link.label });
-                }}
               >
                 {link.label}
               </Link>
@@ -172,7 +183,7 @@ const Header = () => {
                 variant="ghost"
                 size="sm"
                 onClick={toggleLanguage}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 text-foreground/80 hover:text-foreground"
               >
                 <GlobeAltIcon className="w-4 h-4" />
                 <span>{language === 'en' ? 'हिंदी' : 'English'}</span>
@@ -181,7 +192,7 @@ const Header = () => {
                 variant="ghost"
                 size="sm"
                 onClick={toggleTheme}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 text-foreground/80 hover:text-foreground"
               >
                 {isDark ? (
                   <>

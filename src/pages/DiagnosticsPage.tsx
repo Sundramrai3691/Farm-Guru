@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,7 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { analytics } from '@/lib/analytics';
 
 const DiagnosticsPage = () => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedImage, setUploadedImage] = useState<UploadResponse | null>(null);
   const [selectedCrop, setSelectedCrop] = useState('');
@@ -31,14 +30,20 @@ const DiagnosticsPage = () => {
   const { toast } = useToast();
 
   const crops = [
-    { value: 'tomato', label: 'Tomato' },
-    { value: 'wheat', label: 'Wheat' },
-    { value: 'rice', label: 'Rice' },
-    { value: 'cotton', label: 'Cotton' },
-    { value: 'potato', label: 'Potato' },
-    { value: 'onion', label: 'Onion' },
-    { value: 'chili', label: 'Chili' },
-    { value: 'maize', label: 'Maize' }
+    { value: 'tomato', label: language === 'en' ? 'Tomato' : 'टमाटर' },
+    { value: 'wheat', label: language === 'en' ? 'Wheat' : 'गेहूं' },
+    { value: 'rice', label: language === 'en' ? 'Rice' : 'चावल' },
+    { value: 'cotton', label: language === 'en' ? 'Cotton' : 'कपास' },
+    { value: 'potato', label: language === 'en' ? 'Potato' : 'आलू' },
+    { value: 'onion', label: language === 'en' ? 'Onion' : 'प्याज' },
+    { value: 'chili', label: language === 'en' ? 'Chili' : 'मिर्च' },
+    { value: 'maize', label: language === 'en' ? 'Maize' : 'मक्का' }
+  ];
+
+  const severityOptions = [
+    { value: 'mild', label: language === 'en' ? 'Mild' : 'हल्का' },
+    { value: 'moderate', label: language === 'en' ? 'Moderate' : 'मध्यम' },
+    { value: 'severe', label: language === 'en' ? 'Severe' : 'गंभीर' }
   ];
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,6 +57,16 @@ const DiagnosticsPage = () => {
         });
         return;
       }
+      
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Invalid file type",
+          description: "Please select a valid image file",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       setSelectedFile(file);
       setUploadedImage(null);
       setRecommendations(null);
@@ -68,10 +83,18 @@ const DiagnosticsPage = () => {
       const result = await apiClient.uploadImage(selectedFile);
       setUploadedImage(result);
       
-      toast({
-        title: "Image uploaded successfully",
-        description: `Detected: ${result.label} (${Math.round(result.confidence * 100)}% confidence)`,
-      });
+      // Show appropriate feedback based on upload mode
+      if (result.meta?.storage === 'local_fallback') {
+        toast({
+          title: "Image processed (offline mode)",
+          description: "Image saved locally while services reconnect",
+        });
+      } else {
+        toast({
+          title: "Image uploaded successfully",
+          description: `Detected: ${result.label} (${Math.round(result.confidence * 100)}% confidence)`,
+        });
+      }
 
       analytics.track('image_uploaded', {
         label: result.label,
@@ -80,9 +103,10 @@ const DiagnosticsPage = () => {
       });
     } catch (error) {
       console.error('Upload failed:', error);
+      // This should rarely happen due to fallback in apiClient
       toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "Please try again",
+        title: "Upload issue",
+        description: "Please try again or check your connection",
         variant: "destructive",
       });
     } finally {
@@ -113,21 +137,33 @@ const DiagnosticsPage = () => {
 
       setRecommendations(result);
       
-      toast({
-        title: "Analysis complete",
-        description: `Diagnosis confidence: ${Math.round(result.confidence * 100)}%`,
-      });
-
       analytics.track('diagnosis_completed', {
         crop: selectedCrop,
         confidence: result.confidence,
-        has_image: !!uploadedImage
+        has_image: !!uploadedImage,
+        mode: result.meta?.fallback_reason ? 'fallback' : 'api'
       });
+
+      // Show appropriate feedback
+      if (result.meta?.fallback_reason) {
+        toast({
+          title: "Analysis complete (offline mode)",
+          description: "Using general guidelines while services reconnect",
+        });
+      } else {
+        toast({
+          title: "Analysis complete",
+          description: `Diagnosis confidence: ${Math.round(result.confidence * 100)}%`,
+        });
+      }
     } catch (error) {
       console.error('Analysis failed:', error);
+      analytics.errorOccurred('diagnosis_failed', 'DiagnosticsPage');
+      
+      // This should rarely happen due to fallback in apiClient
       toast({
-        title: "Analysis failed",
-        description: error instanceof Error ? error.message : "Please try again",
+        title: "Analysis issue",
+        description: "Please try again or check your connection",
         variant: "destructive",
       });
     } finally {
@@ -147,8 +183,11 @@ const DiagnosticsPage = () => {
             <CameraIcon className="w-8 h-8 text-secondary-dark" />
             {t('diagnostics')}
           </h1>
-          <p className="text-muted-foreground">
-            Upload crop images and get expert diagnosis with treatment recommendations
+          <p className="text-foreground/80 font-medium">
+            {language === 'en' 
+              ? 'Upload crop images and get expert diagnosis with treatment recommendations'
+              : 'फसल की तस्वीरें अपलोड करें और उपचार की सिफारिशों के साथ विशेषज्ञ निदान प्राप्त करें'
+            }
           </p>
         </div>
 
@@ -157,7 +196,7 @@ const DiagnosticsPage = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <PhotoIcon className="w-5 h-5" />
-              Upload Crop Image
+              {language === 'en' ? 'Upload Crop Image' : 'फसल की तस्वीर अपलोड करें'}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -167,9 +206,9 @@ const DiagnosticsPage = () => {
                   <img 
                     src={URL.createObjectURL(selectedFile)} 
                     alt="Selected crop" 
-                    className="max-h-48 mx-auto rounded-radius"
+                    className="max-h-48 mx-auto rounded-radius shadow-soft"
                   />
-                  <p className="text-sm text-muted-foreground">{selectedFile.name}</p>
+                  <p className="text-sm text-foreground/70 font-medium">{selectedFile.name}</p>
                   {uploadedImage && (
                     <div className="flex items-center justify-center gap-2">
                       <CheckCircleIcon className="w-5 h-5 text-success" />
@@ -183,23 +222,31 @@ const DiagnosticsPage = () => {
                 <div className="space-y-4">
                   <CameraIcon className="w-16 h-16 mx-auto text-muted-foreground" />
                   <div>
-                    <p className="text-lg font-medium">Upload a crop image</p>
-                    <p className="text-sm text-muted-foreground">
-                      Take a clear photo of affected leaves, stems, or fruits
+                    <p className="text-lg font-medium text-foreground">
+                      {language === 'en' ? 'Upload a crop image' : 'फसल की तस्वीर अपलोड करें'}
+                    </p>
+                    <p className="text-sm text-foreground/70">
+                      {language === 'en' 
+                        ? 'Take a clear photo of affected leaves, stems, or fruits'
+                        : 'प्रभावित पत्तियों, तनों या फलों की स्पष्ट तस्वीर लें'
+                      }
                     </p>
                   </div>
                 </div>
               )}
             </div>
             
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <Button
                 variant="outline"
                 onClick={() => document.getElementById('file-upload')?.click()}
                 className="flex-1"
               >
                 <PhotoIcon className="w-4 h-4 mr-2" />
-                {selectedFile ? 'Change Image' : 'Select Image'}
+                {selectedFile ? 
+                  (language === 'en' ? 'Change Image' : 'तस्वीर बदलें') : 
+                  (language === 'en' ? 'Select Image' : 'तस्वीर चुनें')
+                }
               </Button>
               
               {selectedFile && !uploadedImage && (
@@ -211,10 +258,10 @@ const DiagnosticsPage = () => {
                   {isUploading ? (
                     <>
                       <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
-                      Uploading...
+                      {language === 'en' ? 'Uploading...' : 'अपलोड हो रहा है...'}
                     </>
                   ) : (
-                    'Upload & Analyze'
+                    language === 'en' ? 'Upload & Analyze' : 'अपलोड और विश्लेषण'
                   )}
                 </Button>
               )}
@@ -233,15 +280,19 @@ const DiagnosticsPage = () => {
         {/* Crop Information Form */}
         <Card className="glass-card">
           <CardHeader>
-            <CardTitle>Crop Information</CardTitle>
+            <CardTitle>
+              {language === 'en' ? 'Crop Information' : 'फसल की जानकारी'}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">Crop Type</label>
+                <label className="text-sm font-medium mb-2 block text-foreground">
+                  {language === 'en' ? 'Crop Type' : 'फसल का प्रकार'}
+                </label>
                 <Select value={selectedCrop} onValueChange={setSelectedCrop}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select crop" />
+                    <SelectValue placeholder={language === 'en' ? 'Select crop' : 'फसल चुनें'} />
                   </SelectTrigger>
                   <SelectContent>
                     {crops.map(crop => (
@@ -254,27 +305,37 @@ const DiagnosticsPage = () => {
               </div>
               
               <div>
-                <label className="text-sm font-medium mb-2 block">Severity</label>
+                <label className="text-sm font-medium mb-2 block text-foreground">
+                  {language === 'en' ? 'Severity' : 'गंभीरता'}
+                </label>
                 <Select value={severity} onValueChange={setSeverity}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="mild">Mild</SelectItem>
-                    <SelectItem value="moderate">Moderate</SelectItem>
-                    <SelectItem value="severe">Severe</SelectItem>
+                    {severityOptions.map(option => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
             
             <div>
-              <label className="text-sm font-medium mb-2 block">Describe Symptoms</label>
+              <label className="text-sm font-medium mb-2 block text-foreground">
+                {language === 'en' ? 'Describe Symptoms' : 'लक्षणों का वर्णन करें'}
+              </label>
               <Textarea
                 value={symptoms}
                 onChange={(e) => setSymptoms(e.target.value)}
-                placeholder="Describe what you observe: yellowing leaves, brown spots, wilting, etc."
+                placeholder={language === 'en' 
+                  ? 'Describe what you observe: yellowing leaves, brown spots, wilting, etc.'
+                  : 'आप जो देखते हैं उसका वर्णन करें: पीली पत्तियां, भूरे धब्बे, मुरझाना, आदि।'
+                }
                 rows={3}
+                className="text-foreground"
               />
             </div>
             
@@ -286,10 +347,10 @@ const DiagnosticsPage = () => {
               {isAnalyzing ? (
                 <>
                   <ArrowPathIcon className="w-4 h-4 mr-2 animate-spin" />
-                  Analyzing...
+                  {language === 'en' ? 'Analyzing...' : 'विश्लेषण कर रहे हैं...'}
                 </>
               ) : (
-                'Get Diagnosis & Recommendations'
+                language === 'en' ? 'Get Diagnosis & Recommendations' : 'निदान और सिफारिशें प्राप्त करें'
               )}
             </Button>
           </CardContent>
@@ -302,23 +363,43 @@ const DiagnosticsPage = () => {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
+            {/* Fallback mode indicator */}
+            {recommendations.meta?.fallback_reason && (
+              <Card className="glass-card border-warning/50 bg-warning/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-warning">
+                    <ExclamationTriangleIcon className="w-5 h-5" />
+                    <span className="font-medium">
+                      {language === 'en' ? 'Offline Diagnosis Mode' : 'ऑफलाइन निदान मोड'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground/70 mt-1">
+                    {language === 'en' 
+                      ? 'Providing general guidance while reconnecting to diagnostic services'
+                      : 'निदान सेवाओं से पुनः कनेक्ट करते समय सामान्य मार्गदर्शन प्रदान कर रहे हैं'
+                    }
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Diagnosis */}
             <Card className="glass-card">
               <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>Diagnosis</span>
+                <CardTitle className="flex items-center justify-between flex-wrap gap-2">
+                  <span>{language === 'en' ? 'Diagnosis' : 'निदान'}</span>
                   <Badge 
                     variant="outline" 
                     className={`${recommendations.confidence > 0.7 ? 'text-success border-success' : 
                                 recommendations.confidence > 0.4 ? 'text-warning border-warning' : 
                                 'text-destructive border-destructive'}`}
                   >
-                    {Math.round(recommendations.confidence * 100)}% confidence
+                    {Math.round(recommendations.confidence * 100)}% {language === 'en' ? 'confidence' : 'विश्वास'}
                   </Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-foreground">{recommendations.diagnosis}</p>
+                <p className="text-foreground leading-relaxed">{recommendations.diagnosis}</p>
               </CardContent>
             </Card>
 
@@ -328,7 +409,7 @@ const DiagnosticsPage = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-warning">
                     <ExclamationTriangleIcon className="w-5 h-5" />
-                    Important Warnings
+                    {language === 'en' ? 'Important Warnings' : 'महत्वपूर्ण चेतावनी'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -346,7 +427,9 @@ const DiagnosticsPage = () => {
             {/* Recommendations */}
             <Card className="glass-card">
               <CardHeader>
-                <CardTitle>Treatment Recommendations</CardTitle>
+                <CardTitle>
+                  {language === 'en' ? 'Treatment Recommendations' : 'उपचार की सिफारिशें'}
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -357,16 +440,18 @@ const DiagnosticsPage = () => {
                                      rec.type === 'biological' ? 'default' : 'secondary'}>
                           {rec.type}
                         </Badge>
-                        <h4 className="font-medium">{rec.method}</h4>
+                        <h4 className="font-medium text-foreground">{rec.method}</h4>
                       </div>
-                      <p className="text-sm text-muted-foreground mb-2">{rec.description}</p>
-                      <p className="text-xs text-muted-foreground mb-2">
-                        <strong>Timing:</strong> {rec.timing}
+                      <p className="text-sm text-foreground/80 mb-2">{rec.description}</p>
+                      <p className="text-xs text-foreground/70 mb-2">
+                        <strong>{language === 'en' ? 'Timing:' : 'समय:'}</strong> {rec.timing}
                       </p>
                       {rec.precautions.length > 0 && (
                         <div>
-                          <p className="text-xs font-medium text-warning mb-1">Precautions:</p>
-                          <ul className="text-xs text-muted-foreground space-y-1">
+                          <p className="text-xs font-medium text-warning mb-1">
+                            {language === 'en' ? 'Precautions:' : 'सावधानियां:'}
+                          </p>
+                          <ul className="text-xs text-foreground/70 space-y-1">
                             {rec.precautions.map((precaution, idx) => (
                               <li key={idx}>• {precaution}</li>
                             ))}
@@ -382,7 +467,9 @@ const DiagnosticsPage = () => {
             {/* Next Steps */}
             <Card className="glass-card">
               <CardHeader>
-                <CardTitle>Next Steps</CardTitle>
+                <CardTitle>
+                  {language === 'en' ? 'Next Steps' : 'अगले कदम'}
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">

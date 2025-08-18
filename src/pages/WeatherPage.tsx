@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
@@ -10,11 +9,13 @@ import {
   BeakerIcon,
   FireIcon,
   EyeDropperIcon,
-  MapPinIcon
+  MapPinIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { useTranslation } from '@/lib/i18n';
 import { analytics } from '@/lib/analytics';
 import { apiClient, WeatherResponse } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 const WeatherPage = () => {
   const [selectedState, setSelectedState] = useState('');
@@ -22,17 +23,24 @@ const WeatherPage = () => {
   const [weatherData, setWeatherData] = useState<WeatherResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { t, language } = useTranslation();
+  const { toast } = useToast();
 
   const states = [
     'Karnataka', 'Maharashtra', 'Punjab', 'Haryana', 'Uttar Pradesh',
     'Madhya Pradesh', 'Rajasthan', 'Gujarat', 'Tamil Nadu', 'Andhra Pradesh'
   ];
 
-  const districts = {
+  const districts: Record<string, string[]> = {
     'Karnataka': ['Bengaluru', 'Mysuru', 'Hubballi', 'Mangaluru', 'Belagavi'],
     'Maharashtra': ['Mumbai', 'Pune', 'Nashik', 'Aurangabad', 'Nagpur'],
     'Punjab': ['Ludhiana', 'Amritsar', 'Jalandhar', 'Patiala', 'Bathinda'],
-    // Add more districts as needed
+    'Haryana': ['Gurugram', 'Faridabad', 'Panipat', 'Ambala', 'Karnal'],
+    'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Agra', 'Varanasi', 'Meerut'],
+    'Madhya Pradesh': ['Bhopal', 'Indore', 'Gwalior', 'Jabalpur', 'Ujjain'],
+    'Rajasthan': ['Jaipur', 'Jodhpur', 'Udaipur', 'Kota', 'Bikaner'],
+    'Gujarat': ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Bhavnagar'],
+    'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Tiruchirappalli', 'Salem'],
+    'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Kurnool']
   };
 
   const fetchWeather = async () => {
@@ -44,17 +52,29 @@ const WeatherPage = () => {
     try {
       const data = await apiClient.getWeather(selectedState, selectedDistrict);
       setWeatherData(data);
+      
       analytics.track('weather_data_fetched', { 
         state: selectedState, 
         district: selectedDistrict,
-        source: data.meta?.source 
+        source: data.meta?.source,
+        mode: data.meta?.fallback_reason ? 'fallback' : 'api'
       });
+
+      // Show appropriate feedback
+      if (data.meta?.fallback_reason) {
+        toast({
+          title: "Weather data (offline mode)",
+          description: "Showing general weather guidance while reconnecting",
+        });
+      }
     } catch (error) {
       console.error('Weather fetch failed:', error);
       analytics.errorOccurred('weather_fetch_failed', 'WeatherPage');
+      
+      // This should rarely happen due to fallback in apiClient
       toast({
-        title: "Weather data unavailable",
-        description: error instanceof Error ? error.message : "Please try again later",
+        title: "Weather data issue",
+        description: "Please try again or check your connection",
         variant: "destructive",
       });
     } finally {
@@ -93,7 +113,7 @@ const WeatherPage = () => {
             <CloudIcon className="w-8 h-8 text-accent-dark" />
             {t('weatherForecast')}
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-foreground/80 font-medium">
             {language === 'en' 
               ? 'Get accurate weather forecasts and irrigation recommendations for your area'
               : 'अपने क्षेत्र के लिए सटीक मौसम पूर्वानुमान और सिंचाई की सिफारिशें प्राप्त करें'
@@ -112,7 +132,7 @@ const WeatherPage = () => {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">
+                <label className="text-sm font-medium mb-2 block text-foreground">
                   {language === 'en' ? 'State' : 'राज्य'}
                 </label>
                 <Select value={selectedState} onValueChange={setSelectedState}>
@@ -128,7 +148,7 @@ const WeatherPage = () => {
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-2 block">
+                <label className="text-sm font-medium mb-2 block text-foreground">
                   {language === 'en' ? 'District' : 'जिला'}
                 </label>
                 <Select 
@@ -140,7 +160,7 @@ const WeatherPage = () => {
                     <SelectValue placeholder={language === 'en' ? 'Select district' : 'जिला चुनें'} />
                   </SelectTrigger>
                   <SelectContent>
-                    {selectedState && districts[selectedState as keyof typeof districts]?.map(district => (
+                    {selectedState && districts[selectedState]?.map(district => (
                       <SelectItem key={district} value={district}>{district}</SelectItem>
                     ))}
                   </SelectContent>
@@ -158,7 +178,7 @@ const WeatherPage = () => {
             className="text-center py-8"
           >
             <CloudIcon className="w-12 h-12 mx-auto text-accent-dark animate-pulse mb-4" />
-            <p className="text-lg font-medium text-muted-foreground">
+            <p className="text-lg font-medium text-foreground/80">
               {language === 'en' ? 'Fetching weather data...' : 'मौसम डेटा प्राप्त कर रहे हैं...'}
             </p>
           </motion.div>
@@ -171,6 +191,26 @@ const WeatherPage = () => {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
+            {/* Fallback mode indicator */}
+            {weatherData.meta?.fallback_reason && (
+              <Card className="glass-card border-warning/50 bg-warning/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-warning">
+                    <ExclamationTriangleIcon className="w-5 h-5" />
+                    <span className="font-medium">
+                      {language === 'en' ? 'Offline Weather Mode' : 'ऑफलाइन मौसम मोड'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground/70 mt-1">
+                    {language === 'en' 
+                      ? 'Showing general weather guidance while reconnecting to weather services'
+                      : 'मौसम सेवाओं से पुनः कनेक्ट करते समय सामान्य मौसम मार्गदर्शन दिखा रहे हैं'
+                    }
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Current Conditions */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="glass-card">
@@ -179,7 +219,7 @@ const WeatherPage = () => {
                   <div className={`text-2xl font-bold mb-1 ${getTemperatureColor(weatherData.forecast.temperature)}`}>
                     {weatherData.forecast.temperature}°C
                   </div>
-                  <div className="text-sm text-muted-foreground">{t('temperature')}</div>
+                  <div className="text-sm text-foreground/70">{t('temperature')}</div>
                 </CardContent>
               </Card>
 
@@ -189,7 +229,7 @@ const WeatherPage = () => {
                   <div className={`text-2xl font-bold mb-1 ${getHumidityColor(weatherData.forecast.humidity)}`}>
                     {weatherData.forecast.humidity}%
                   </div>
-                  <div className="text-sm text-muted-foreground">{t('humidity')}</div>
+                  <div className="text-sm text-foreground/70">{t('humidity')}</div>
                 </CardContent>
               </Card>
 
@@ -199,7 +239,7 @@ const WeatherPage = () => {
                   <div className="text-2xl font-bold mb-1 text-accent-dark">
                     {weatherData.forecast.rainfall}mm
                   </div>
-                  <div className="text-sm text-muted-foreground">{t('rainfall')}</div>
+                  <div className="text-sm text-foreground/70">{t('rainfall')}</div>
                 </CardContent>
               </Card>
             </div>
@@ -238,7 +278,7 @@ const WeatherPage = () => {
                 </div>
                 {weatherData.meta?.source && (
                   <div className="mt-3 pt-3 border-t border-border/30">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-foreground/60">
                       Data source: {weatherData.meta.source}
                       {weatherData.last_updated && (
                         <span> • Updated: {new Date(weatherData.last_updated).toLocaleString()}</span>
@@ -246,30 +286,6 @@ const WeatherPage = () => {
                     </p>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-
-            {/* 7-Day Forecast Preview */}
-            <Card className="glass-card">
-              <CardHeader>
-                <CardTitle>
-                  {language === 'en' ? '7-Day Forecast' : '7-दिन का पूर्वानुमान'}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {[...Array(4)].map((_, index) => (
-                    <div key={index} className="text-center p-3 bg-muted/20 rounded-radius">
-                      <div className="text-sm font-medium text-muted-foreground mb-1">
-                        {language === 'en' ? `Day ${index + 2}` : `दिन ${index + 2}`}
-                      </div>
-                      <CloudIcon className="w-6 h-6 mx-auto mb-1 text-accent-dark" />
-                      <div className="text-sm font-medium">
-                        {28 + Math.floor(Math.random() * 6)}°C
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </CardContent>
             </Card>
           </motion.div>

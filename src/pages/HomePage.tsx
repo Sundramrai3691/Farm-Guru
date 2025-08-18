@@ -13,7 +13,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { useTranslation } from '@/lib/i18n';
 import { analytics } from '@/lib/analytics';
-import heroImage from '@/assets/hero-farm.jpg';
 
 const HomePage = () => {
   const [isListening, setIsListening] = useState(false);
@@ -98,7 +97,7 @@ const HomePage = () => {
     setIsListening(true);
     analytics.featureUsed('voice_input');
     
-    // Simulate voice input
+    // Simulate voice input with proper error handling
     setTimeout(() => {
       setIsListening(false);
       // In real implementation, would navigate to query page with voice result
@@ -109,19 +108,30 @@ const HomePage = () => {
     analytics.track('quick_prompt_clicked', { category, prompt: prompt.substring(0, 50) });
   };
 
+  const handleFeatureClick = (feature: any) => {
+    analytics.track('feature_card_clicked', { 
+      feature: feature.title, 
+      href: feature.href 
+    });
+  };
+
+  const handleCTAClick = (buttonType: string) => {
+    analytics.track('cta_clicked', { 
+      button: buttonType, 
+      location: 'hero' 
+    });
+  };
+
   return (
     <div className="min-h-screen">
       {/* Hero Section */}
       <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden">
-        {/* Background Image */}
-        <div 
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: `url(${heroImage})` }}
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-background/90 via-background/70 to-transparent" />
+        {/* Enhanced Background with better contrast */}
+        <div className="absolute inset-0 bg-gradient-field">
+          <div className="absolute inset-0 bg-gradient-to-br from-background/95 via-background/85 to-background/75" />
         </div>
 
-        {/* Hero Content */}
+        {/* Hero Content with improved text contrast */}
         <div className="relative z-10 container mx-auto px-4 text-center">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
@@ -130,35 +140,46 @@ const HomePage = () => {
             className="max-w-4xl mx-auto"
           >
             <motion.h1 
-              className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 hero-text"
+              className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 text-foreground drop-shadow-sm"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2, duration: 0.8 }}
+              style={{
+                textShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                background: 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary-dark)) 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text'
+              }}
             >
               {t('heroTitle')}
             </motion.h1>
             
             <motion.p 
-              className="text-lg md:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto leading-relaxed"
+              className="text-lg md:text-xl text-foreground/90 mb-8 max-w-2xl mx-auto leading-relaxed font-medium drop-shadow-sm"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4, duration: 0.8 }}
+              style={{ textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}
             >
               {t('heroSubtitle')}
             </motion.p>
 
-            {/* CTA Buttons */}
+            {/* Enhanced CTA Buttons with better responsiveness */}
             <motion.div 
-              className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12"
+              className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12 px-4"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6, duration: 0.8 }}
             >
               <Button
                 size="lg"
-                onClick={handleVoiceInput}
+                onClick={() => {
+                  handleCTAClick('voice_input');
+                  handleVoiceInput();
+                }}
                 disabled={isListening}
-                className="btn-hover bg-primary hover:bg-primary-light text-primary-foreground px-8 py-4 text-lg font-semibold rounded-radius-lg animate-pulse-glow"
+                className="btn-hover bg-primary hover:bg-primary-light text-primary-foreground px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-semibold rounded-radius-lg animate-pulse-glow w-full sm:w-auto min-w-[200px] shadow-lg"
               >
                 <MicrophoneIcon className={`w-5 h-5 mr-2 ${isListening ? 'animate-pulse' : ''}`} />
                 {isListening ? 
@@ -171,24 +192,27 @@ const HomePage = () => {
                 asChild
                 variant="outline"
                 size="lg"
-                className="btn-hover border-primary/30 text-foreground hover:bg-primary/10 px-8 py-4 text-lg font-semibold rounded-radius-lg"
+                className="btn-hover border-2 border-primary/30 text-foreground hover:bg-primary/10 hover:border-primary/50 px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-semibold rounded-radius-lg w-full sm:w-auto min-w-[200px] shadow-lg bg-background/80 backdrop-blur-sm"
               >
-                <Link to="/query">
-                  onClick={() => analytics.track('cta_clicked', { button: 'ask_ai_assistant', location: 'hero' })}
+                <Link 
+                  to="/query"
+                  onClick={() => handleCTAClick('ask_ai_assistant')}
+                  className="flex items-center justify-center w-full"
+                >
                   <SparklesIcon className="w-5 h-5 mr-2" />
                   {language === 'en' ? 'Ask AI Assistant' : 'AI सहायक से पूछें'}
                 </Link>
               </Button>
             </motion.div>
 
-            {/* Quick Prompts */}
+            {/* Enhanced Quick Prompts with better contrast */}
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.8, duration: 0.8 }}
-              className="max-w-3xl mx-auto"
+              className="max-w-3xl mx-auto px-4"
             >
-              <h3 className="text-sm font-medium text-muted-foreground mb-4 uppercase tracking-wide">
+              <h3 className="text-sm font-medium text-foreground/80 mb-4 uppercase tracking-wide drop-shadow-sm">
                 {t('quickPrompts')}
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -201,14 +225,14 @@ const HomePage = () => {
                   >
                     <Button
                       variant="ghost"
-                      className="w-full text-left p-4 h-auto glass-card hover:bg-primary/5 transition-all duration-300 group"
+                      className="w-full text-left p-4 h-auto glass-card hover:bg-primary/10 hover:border-primary/20 transition-all duration-300 group border border-transparent"
                       asChild
                     >
                       <Link 
                         to={`/query?q=${encodeURIComponent(prompt.text)}`}
                         onClick={() => handleQuickPrompt(prompt.text, prompt.category)}
                       >
-                        <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+                        <span className="text-sm text-foreground/80 group-hover:text-foreground transition-colors font-medium">
                           "{prompt.text}"
                         </span>
                       </Link>
@@ -220,7 +244,7 @@ const HomePage = () => {
           </motion.div>
         </div>
 
-        {/* Floating elements */}
+        {/* Enhanced floating elements */}
         <motion.div
           animate={{ y: [0, -10, 0] }}
           transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
@@ -233,7 +257,7 @@ const HomePage = () => {
         />
       </section>
 
-      {/* Features Section */}
+      {/* Enhanced Features Section */}
       <section className="py-20 relative">
         <div className="container mx-auto px-4">
           <motion.div
@@ -243,10 +267,10 @@ const HomePage = () => {
             viewport={{ once: true }}
             className="text-center mb-16"
           >
-            <h2 className="text-3xl md:text-4xl font-bold mb-4 text-foreground">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4 text-foreground drop-shadow-sm">
               {language === 'en' ? 'Everything You Need for Smart Farming' : 'स्मार्ट फार्मिंग के लिए आपको जो कुछ भी चाहिए'}
             </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg text-foreground/80 max-w-2xl mx-auto font-medium">
               {language === 'en' 
                 ? 'Comprehensive tools and insights to help you make data-driven farming decisions'
                 : 'डेटा-संचालित कृषि निर्णय लेने में आपकी सहायता के लिए व्यापक उपकरण और अंतर्दृष्टि'
@@ -265,24 +289,26 @@ const HomePage = () => {
                 whileHover={{ y: -5 }}
                 className="group"
               >
-                <Card className="glass-card border-glass-border hover:shadow-elevated transition-all duration-300 h-full">
+                <Card className="glass-card border-glass-border hover:shadow-elevated hover:border-primary/20 transition-all duration-300 h-full">
                   <CardContent className="p-6 text-center h-full flex flex-col">
-                    <div className={`w-16 h-16 mx-auto mb-4 rounded-radius-lg bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                    <div className={`w-16 h-16 mx-auto mb-4 rounded-radius-lg bg-gradient-to-br from-muted/50 to-muted/30 flex items-center justify-center group-hover:scale-110 transition-transform shadow-soft`}>
                       <feature.icon className={`w-8 h-8 ${feature.color}`} />
                     </div>
                     <h3 className="text-xl font-semibold mb-2 text-foreground">
                       {feature.title}
                     </h3>
-                    <p className="text-muted-foreground mb-4 flex-1">
+                    <p className="text-foreground/70 mb-4 flex-1 leading-relaxed">
                       {feature.description}
                     </p>
                     <Button
                       asChild
                       variant="ghost"
-                      className="mt-auto group-hover:bg-primary/10 transition-colors"
+                      className="mt-auto group-hover:bg-primary/10 group-hover:text-primary transition-colors font-medium"
                     >
-                      <Link to={feature.href}>
-                        onClick={() => analytics.track('feature_card_clicked', { feature: feature.title, href: feature.href })}
+                      <Link 
+                        to={feature.href}
+                        onClick={() => handleFeatureClick(feature)}
+                      >
                         {language === 'en' ? 'Explore' : 'एक्सप्लोर करें'} →
                       </Link>
                     </Button>

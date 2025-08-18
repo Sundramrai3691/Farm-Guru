@@ -8,7 +8,8 @@ import {
   ChartBarIcon,
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
-  ArrowRightIcon
+  ArrowRightIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { useTranslation } from '@/lib/i18n';
 import { analytics } from '@/lib/analytics';
@@ -26,7 +27,10 @@ const MarketPage = () => {
   const commodities = [
     { value: 'tomato', label: language === 'en' ? 'Tomato' : 'टमाटर' },
     { value: 'wheat', label: language === 'en' ? 'Wheat' : 'गेहूं' },
-    { value: 'rice', label: language === 'en' ? 'Rice' : 'चावल' }
+    { value: 'rice', label: language === 'en' ? 'Rice' : 'चावल' },
+    { value: 'onion', label: language === 'en' ? 'Onion' : 'प्याज' },
+    { value: 'potato', label: language === 'en' ? 'Potato' : 'आलू' },
+    { value: 'cotton', label: language === 'en' ? 'Cotton' : 'कपास' }
   ];
 
   const mandis = [
@@ -43,17 +47,29 @@ const MarketPage = () => {
     try {
       const data = await apiClient.getMarketData(selectedCommodity, selectedMandi);
       setMarketData(data);
+      
       analytics.track('market_data_fetched', { 
         commodity: selectedCommodity, 
         mandi: selectedMandi,
-        source: data.meta?.source 
+        source: data.meta?.source,
+        mode: data.meta?.fallback_reason ? 'fallback' : 'api'
       });
+
+      // Show appropriate feedback
+      if (data.meta?.fallback_reason) {
+        toast({
+          title: "Market data (offline mode)",
+          description: "Showing reference prices while reconnecting to market services",
+        });
+      }
     } catch (error) {
       console.error('Market data fetch failed:', error);
       analytics.errorOccurred('market_fetch_failed', 'MarketPage');
+      
+      // This should rarely happen due to fallback in apiClient
       toast({
-        title: "Market data unavailable",
-        description: error instanceof Error ? error.message : "Please try again later",
+        title: "Market data issue",
+        description: "Please try again or check your connection",
         variant: "destructive",
       });
     } finally {
@@ -107,7 +123,7 @@ const MarketPage = () => {
             <ChartBarIcon className="w-8 h-8 text-warning" />
             {t('commodityPrices')}
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-foreground/80 font-medium">
             {language === 'en' 
               ? 'Track real-time commodity prices and get trading signals for better market decisions'
               : 'बेहतर बाजार निर्णयों के लिए रियल-टाइम कमोडिटी की कीमतों को ट्रैक करें और ट्रेडिंग सिग्नल प्राप्त करें'
@@ -120,7 +136,7 @@ const MarketPage = () => {
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">
+                <label className="text-sm font-medium mb-2 block text-foreground">
                   {language === 'en' ? 'Commodity' : 'कमोडिटी'}
                 </label>
                 <Select value={selectedCommodity} onValueChange={setSelectedCommodity}>
@@ -138,7 +154,7 @@ const MarketPage = () => {
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-2 block">
+                <label className="text-sm font-medium mb-2 block text-foreground">
                   {language === 'en' ? 'Mandi' : 'मंडी'}
                 </label>
                 <Select value={selectedMandi} onValueChange={setSelectedMandi}>
@@ -164,7 +180,7 @@ const MarketPage = () => {
             className="text-center py-8"
           >
             <ChartBarIcon className="w-12 h-12 mx-auto text-warning animate-pulse mb-4" />
-            <p className="text-lg font-medium text-muted-foreground">
+            <p className="text-lg font-medium text-foreground/80">
               {language === 'en' ? 'Fetching market data...' : 'बाजार डेटा प्राप्त कर रहे हैं...'}
             </p>
           </motion.div>
@@ -177,235 +193,255 @@ const MarketPage = () => {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
-        {/* Price Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="glass-card">
-            <CardContent className="p-6 text-center">
-              <div className="text-2xl font-bold mb-1 text-foreground">
-                ₹{latestPrice.toLocaleString()}
-              </div>
-              <div className="text-sm text-muted-foreground mb-2">
-                {language === 'en' ? 'Current Price' : 'वर्तमान मूल्य'}
-              </div>
-              <div className={`flex items-center justify-center gap-1 text-sm ${
-                priceChange >= 0 ? 'text-success' : 'text-destructive'
-              }`}>
-                {priceChange >= 0 ? (
-                  <ArrowTrendingUpIcon className="w-4 h-4" />
+            {/* Fallback mode indicator */}
+            {marketData.meta?.fallback_reason && (
+              <Card className="glass-card border-warning/50 bg-warning/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 text-warning">
+                    <ExclamationTriangleIcon className="w-5 h-5" />
+                    <span className="font-medium">
+                      {language === 'en' ? 'Offline Market Mode' : 'ऑफलाइन बाजार मोड'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground/70 mt-1">
+                    {language === 'en' 
+                      ? 'Showing reference prices while reconnecting to market services'
+                      : 'बाजार सेवाओं से पुनः कनेक्ट करते समय संदर्भ मूल्य दिखा रहे हैं'
+                    }
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Price Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card className="glass-card">
+                <CardContent className="p-6 text-center">
+                  <div className="text-2xl font-bold mb-1 text-foreground">
+                    ₹{latestPrice.toLocaleString()}
+                  </div>
+                  <div className="text-sm text-foreground/70 mb-2">
+                    {language === 'en' ? 'Current Price' : 'वर्तमान मूल्य'}
+                  </div>
+                  <div className={`flex items-center justify-center gap-1 text-sm ${
+                    priceChange >= 0 ? 'text-success' : 'text-destructive'
+                  }`}>
+                    {priceChange >= 0 ? (
+                      <ArrowTrendingUpIcon className="w-4 h-4" />
+                    ) : (
+                      <ArrowTrendingDownIcon className="w-4 h-4" />
+                    )}
+                    <span>₹{Math.abs(priceChange)}</span>
+                    <span>({priceChangePercent.toFixed(1)}%)</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card">
+                <CardContent className="p-6 text-center">
+                  <div className="text-2xl font-bold mb-1 text-accent-dark">
+                    ₹{Math.round(sevenDayAverage).toLocaleString()}
+                  </div>
+                  <div className="text-sm text-foreground/70">
+                    {language === 'en' ? '7-Day Average' : '7-दिन औसत'}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card">
+                <CardContent className="p-6 text-center">
+                  <div className="text-2xl font-bold mb-1 text-success">
+                    ₹{currentData.length > 0 ? Math.min(...currentData.map(d => d.price)).toLocaleString() : '0'}
+                  </div>
+                  <div className="text-sm text-foreground/70">
+                    {language === 'en' ? '7-Day Low' : '7-दिन कम'}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card">
+                <CardContent className="p-6 text-center">
+                  <div className="text-2xl font-bold mb-1 text-destructive">
+                    ₹{currentData.length > 0 ? Math.max(...currentData.map(d => d.price)).toLocaleString() : '0'}
+                  </div>
+                  <div className="text-sm text-foreground/70">
+                    {language === 'en' ? '7-Day High' : '7-दिन उच्च'}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Trading Signal */}
+            <Card className={`glass-card border-2 ${getSignalColor(signal).split(' ')[1]} ${getSignalBg(signal)}`}>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-3 rounded-radius-lg ${getSignalBg(signal)}`}>
+                      <ChartBarIcon className={`w-6 h-6 ${getSignalColor(signal).split(' ')[0]}`} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground">
+                        {language === 'en' ? 'Trading Signal' : 'ट्रेडिंग सिग्नल'}
+                      </h3>
+                      <p className="text-sm text-foreground/70">
+                        {language === 'en' ? 'Based on 7-day price analysis' : '7-दिन मूल्य विश्लेषण के आधार पर'}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className={`text-lg px-4 py-2 ${getSignalColor(signal)}`}>
+                    {signal}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Price Chart */}
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ChartBarIcon className="w-5 h-5" />
+                  {t('priceChart')} - {commodities.find(c => c.value === selectedCommodity)?.label}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {currentData.length > 0 ? (
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={currentData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis 
+                          dataKey="date" 
+                          stroke="hsl(var(--foreground) / 0.7)"
+                          fontSize={12}
+                          tickFormatter={(value) => new Date(value).toLocaleDateString()}
+                        />
+                        <YAxis 
+                          stroke="hsl(var(--foreground) / 0.7)"
+                          fontSize={12}
+                          tickFormatter={(value) => `₹${value}`}
+                        />
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: 'hsl(var(--card))',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: 'var(--radius)',
+                            color: 'hsl(var(--card-foreground))'
+                          }}
+                          formatter={(value: any) => [`₹${value}`, 'Price']}
+                          labelFormatter={(label) => new Date(label).toLocaleDateString()}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="price" 
+                          stroke="hsl(var(--primary))" 
+                          strokeWidth={3}
+                          dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 6 }}
+                          activeDot={{ r: 8, stroke: 'hsl(var(--primary))', strokeWidth: 2 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 ) : (
-                  <ArrowTrendingDownIcon className="w-4 h-4" />
+                  <div className="h-80 flex items-center justify-center text-foreground/70">
+                    <p>{language === 'en' ? 'No price data available' : 'कोई मूल्य डेटा उपलब्ध नहीं'}</p>
+                  </div>
                 )}
-                <span>₹{Math.abs(priceChange)}</span>
-                <span>({priceChangePercent.toFixed(1)}%)</span>
-              </div>
-            </CardContent>
-          </Card>
+                {marketData.meta?.source && (
+                  <div className="mt-4 pt-4 border-t border-border/30">
+                    <p className="text-xs text-foreground/60">
+                      Data source: {marketData.meta.source}
+                      {marketData.meta.note && (
+                        <span> • {marketData.meta.note}</span>
+                      )}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-          <Card className="glass-card">
-            <CardContent className="p-6 text-center">
-              <div className="text-2xl font-bold mb-1 text-accent-dark">
-                ₹{Math.round(sevenDayAverage).toLocaleString()}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {language === 'en' ? '7-Day Average' : '7-दिन औसत'}
-              </div>
-            </CardContent>
-          </Card>
+            {/* Market Insights */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle>
+                    {language === 'en' ? 'Market Insights' : 'बाजार अंतर्दृष्टि'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <ArrowRightIcon className="w-5 h-5 text-primary mt-0.5" />
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {language === 'en' ? 'Price Trend' : 'मूल्य प्रवृत्ति'}
+                      </p>
+                      <p className="text-sm text-foreground/70">
+                        {priceChange >= 0 
+                          ? (language === 'en' ? 'Prices are trending upward' : 'कीमतें ऊपर की ओर बढ़ रही हैं')
+                          : (language === 'en' ? 'Prices are declining' : 'कीमतें गिर रही हैं')
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-start gap-3">
+                    <ArrowRightIcon className="w-5 h-5 text-primary mt-0.5" />
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {language === 'en' ? 'Volatility' : 'अस्थिरता'}
+                      </p>
+                      <p className="text-sm text-foreground/70">
+                        {Math.abs(priceChangePercent) > 5 
+                          ? (language === 'en' ? 'High volatility detected' : 'उच्च अस्थिरता का पता चला')
+                          : (language === 'en' ? 'Normal market conditions' : 'सामान्य बाजार स्थितियां')
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
-          <Card className="glass-card">
-            <CardContent className="p-6 text-center">
-              <div className="text-2xl font-bold mb-1 text-success">
-                ₹{Math.min(...currentData.map(d => d.price)).toLocaleString()}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {language === 'en' ? '7-Day Low' : '7-दिन कम'}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card">
-            <CardContent className="p-6 text-center">
-              <div className="text-2xl font-bold mb-1 text-destructive">
-                ₹{Math.max(...currentData.map(d => d.price)).toLocaleString()}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {language === 'en' ? '7-Day High' : '7-दिन उच्च'}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Trading Signal */}
-        <Card className={`glass-card border-2 ${getSignalColor(signal).split(' ')[1]} ${getSignalBg(signal)}`}>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`p-3 rounded-radius-lg ${getSignalBg(signal)}`}>
-                  <ChartBarIcon className={`w-6 h-6 ${getSignalColor(signal).split(' ')[0]}`} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">
-                    {language === 'en' ? 'Trading Signal' : 'ट्रेडिंग सिग्नल'}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {language === 'en' ? 'Based on 7-day price analysis' : '7-दिन मूल्य विश्लेषण के आधार पर'}
-                  </p>
-                </div>
-              </div>
-              <Badge variant="outline" className={`text-lg px-4 py-2 ${getSignalColor(signal)}`}>
-                {signal}
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Price Chart */}
-        <Card className="glass-card">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ChartBarIcon className="w-5 h-5" />
-              {t('priceChart')} - {commodities.find(c => c.value === selectedCommodity)?.label}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {currentData.length > 0 ? (
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={currentData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickFormatter={(value) => new Date(value).toLocaleDateString()}
-                  />
-                  <YAxis 
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickFormatter={(value) => `₹${value}`}
-                  />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: 'var(--radius)',
-                      color: 'hsl(var(--card-foreground))'
-                    }}
-                    formatter={(value: any) => [`₹${value}`, 'Price']}
-                    labelFormatter={(label) => new Date(label).toLocaleDateString()}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="price" 
-                    stroke="hsl(var(--primary))" 
-                    strokeWidth={3}
-                    dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 6 }}
-                    activeDot={{ r: 8, stroke: 'hsl(var(--primary))', strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            ) : (
-              <div className="h-80 flex items-center justify-center text-muted-foreground">
-                <p>{language === 'en' ? 'No price data available' : 'कोई मूल्य डेटा उपलब्ध नहीं'}</p>
-              </div>
-            )}
-            {marketData.meta?.source && (
-              <div className="mt-4 pt-4 border-t border-border/30">
-                <p className="text-xs text-muted-foreground">
-                  Data source: {marketData.meta.source}
-                  {marketData.meta.note && (
-                    <span> • {marketData.meta.note}</span>
+              <Card className="glass-card">
+                <CardHeader>
+                  <CardTitle>
+                    {language === 'en' ? 'Recommendations' : 'सिफारिशें'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {signal === 'BUY' && (
+                    <div className="p-3 bg-success/10 rounded-radius border border-success/20">
+                      <p className="text-sm text-success font-medium">
+                        {language === 'en' 
+                          ? 'Consider holding your produce for better prices'
+                          : 'बेहतर कीमतों के लिए अपनी उपज को रोकने पर विचार करें'
+                        }
+                      </p>
+                    </div>
                   )}
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Market Insights */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="glass-card">
-            <CardHeader>
-              <CardTitle>
-                {language === 'en' ? 'Market Insights' : 'बाजार अंतर्दृष्टि'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start gap-3">
-                <ArrowRightIcon className="w-5 h-5 text-primary mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">
-                    {language === 'en' ? 'Price Trend' : 'मूल्य प्रवृत्ति'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {priceChange >= 0 
-                      ? (language === 'en' ? 'Prices are trending upward' : 'कीमतें ऊपर की ओर बढ़ रही हैं')
-                      : (language === 'en' ? 'Prices are declining' : 'कीमतें गिर रही हैं')
-                    }
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <ArrowRightIcon className="w-5 h-5 text-primary mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">
-                    {language === 'en' ? 'Volatility' : 'अस्थिरता'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {Math.abs(priceChangePercent) > 5 
-                      ? (language === 'en' ? 'High volatility detected' : 'उच्च अस्थिरता का पता चला')
-                      : (language === 'en' ? 'Normal market conditions' : 'सामान्य बाजार स्थितियां')
-                    }
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card">
-            <CardHeader>
-              <CardTitle>
-                {language === 'en' ? 'Recommendations' : 'सिफारिशें'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {signal === 'BUY' && (
-                <div className="p-3 bg-success/10 rounded-radius border border-success/20">
-                  <p className="text-sm text-success font-medium">
-                    {language === 'en' 
-                      ? 'Consider holding your produce for better prices'
-                      : 'बेहतर कीमतों के लिए अपनी उपज को रोकने पर विचार करें'
-                    }
-                  </p>
-                </div>
-              )}
-              
-              {signal === 'SELL' && (
-                <div className="p-3 bg-destructive/10 rounded-radius border border-destructive/20">
-                  <p className="text-sm text-destructive font-medium">
-                    {language === 'en' 
-                      ? 'Good time to sell, prices are above average'
-                      : 'बेचने का अच्छा समय, कीमतें औसत से ऊपर हैं'
-                    }
-                  </p>
-                </div>
-              )}
-              
-              {signal === 'HOLD' && (
-                <div className="p-3 bg-warning/10 rounded-radius border border-warning/20">
-                  <p className="text-sm text-warning font-medium">
-                    {language === 'en' 
-                      ? 'Monitor market closely for the next few days'
-                      : 'अगले कुछ दिनों के लिए बाजार की बारीकी से निगरानी करें'
-                    }
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                  
+                  {signal === 'SELL' && (
+                    <div className="p-3 bg-destructive/10 rounded-radius border border-destructive/20">
+                      <p className="text-sm text-destructive font-medium">
+                        {language === 'en' 
+                          ? 'Good time to sell, prices are above average'
+                          : 'बेचने का अच्छा समय, कीमतें औसत से ऊपर हैं'
+                        }
+                      </p>
+                    </div>
+                  )}
+                  
+                  {signal === 'HOLD' && (
+                    <div className="p-3 bg-warning/10 rounded-radius border border-warning/20">
+                      <p className="text-sm text-warning font-medium">
+                        {language === 'en' 
+                          ? 'Monitor market closely for the next few days'
+                          : 'अगले कुछ दिनों के लिए बाजार की बारीकी से निगरानी करें'
+                        }
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </motion.div>
         )}
       </motion.div>

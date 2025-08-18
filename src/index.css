@@ -157,7 +157,7 @@
 
   body {
     @apply bg-background text-foreground font-medium antialiased;
-    background: var(--gradient-field);
+    background: linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted)) 100%);
     min-height: 100vh;
   }
 
@@ -195,10 +195,11 @@
 @layer components {
   /* Hero gradient text */
   .hero-text {
-    background: var(--gradient-sunrise);
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary-dark)) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.1));
   }
 
   /* Animated underline */
@@ -208,7 +209,7 @@
 
   /* Button hover animations */
   .btn-hover {
-    @apply transition-all duration-300 hover:scale-105 hover:shadow-elevated;
+    @apply transition-all duration-300 hover:scale-[1.02] hover:shadow-elevated active:scale-[0.98];
   }
 
   /* Page transition base */
@@ -223,5 +224,19 @@
 
   .safe-area-top {
     padding-top: env(safe-area-inset-top);
+  }
+
+  /* Enhanced text contrast utilities */
+  .text-contrast {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+
+  .text-contrast-strong {
+    text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  }
+
+  /* Improved glass effect */
+  .glass-enhanced {
+    @apply backdrop-blur-xl bg-background/80 border border-border/50 shadow-glass;
   }
 }
