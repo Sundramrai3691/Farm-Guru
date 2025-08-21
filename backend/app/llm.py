@@ -1,7 +1,9 @@
 import json
 import logging
 import requests
+import time
 from typing import Dict, Any, List, Optional
+from requests.adapters import HTTPAdapter, Retry
 from app.config import HF_API_KEY, HF_MODEL, DEMO_MODE
 
 logger = logging.getLogger(__name__)
@@ -12,8 +14,18 @@ class LLMClient:
         self.model = HF_MODEL
         self.base_url = "https://api-inference.huggingface.co/models"
         
+        # Setup session with retries
+        self.session = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=2,
+            status_forcelist=[429, 502, 503, 504],
+            allowed_methods=["POST"]
+        )
+        self.session.mount("https://", HTTPAdapter(max_retries=retries))
+
     def query_huggingface(self, prompt: str, max_tokens: int = 256) -> Optional[str]:
-        """Query Hugging Face Inference API"""
+        """Query Hugging Face Inference API with retries and backoff"""
         if not self.api_key:
             logger.warning("HF_API_KEY not provided, using fallback")
             return None
@@ -32,33 +44,40 @@ class LLMClient:
             }
         }
         
-        try:
-            response = requests.post(
-                f"{self.base_url}/{self.model}",
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
+        url = f"{self.base_url}/{self.model}"
+
+        for attempt in range(3):  # try up to 3 times
+            try:
+                response = self.session.post(url, headers=headers, json=payload, timeout=60)
                 
-                # Handle different response formats
-                if isinstance(result, list) and len(result) > 0:
-                    if "generated_text" in result[0]:
-                        return result[0]["generated_text"]
-                elif isinstance(result, dict) and "generated_text" in result:
-                    return result["generated_text"]
+                if response.status_code == 200:
+                    result = response.json()
                     
-                logger.warning(f"Unexpected HF response format: {result}")
-                return None
-            else:
-                logger.error(f"HF API error {response.status_code}: {response.text}")
-                return None
+                    # Handle different response formats
+                    if isinstance(result, list) and len(result) > 0:
+                        if "generated_text" in result[0]:
+                            return result[0]["generated_text"]
+                    elif isinstance(result, dict) and "generated_text" in result:
+                        return result["generated_text"]
+                    
+                    logger.warning(f"Unexpected HF response format: {result}")
+                    return None
                 
-        except Exception as e:
-            logger.error(f"HF API request failed: {e}")
-            return None
+                elif response.status_code == 503 and "is currently loading" in response.text:
+                    # Model is still loading, wait and retry
+                    logger.warning(f"Model {self.model} is loading. Retrying in {5 * (attempt+1)}s...")
+                    time.sleep(5 * (attempt + 1))
+                    continue
+                
+                else:
+                    logger.error(f"HF API error {response.status_code}: {response.text}")
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"HF API request failed (attempt {attempt+1}): {e}")
+                time.sleep(2 * (attempt + 1))  # backoff and retry
+        
+        return None  # after retries exhausted
 
     def synthesize_answer(self, prompt_text: str, retrieved_docs: List[Dict[str, Any]], 
                          image_context: Optional[str] = None) -> Dict[str, Any]:
@@ -76,7 +95,13 @@ class LLMClient:
                         return parsed
                 except json.JSONDecodeError:
                     # If not JSON, wrap in response format
-                    pass
+                    return {
+                        "answer": hf_response.strip(),
+                        "confidence": 0.7,
+                        "actions": [],
+                        "sources": [],
+                        "meta": {"mode": "ai", "model": self.model}
+                    }
         
         # Fallback to deterministic synthesis
         return self._deterministic_fallback(prompt_text, retrieved_docs, image_context)
