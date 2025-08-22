@@ -1,4 +1,4 @@
-import logging
+import logging 
 import os
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, Request
@@ -29,10 +29,15 @@ app = FastAPI(
 )
 
 # ---------------- CORS ----------------
-# ⚠️ Dev: allow all origins. Restrict this in prod.
+# ⚠️ Update origins for your frontend domain
+origins = [
+    "https://farm-guru-gilt.vercel.app",
+    "http://localhost:5173",  # optional for local testing
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,  # <-- only allow these domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,7 +58,6 @@ app.include_router(chem_reco.router)
 app.include_router(analytics.router)
 
 # ---------------- Global Model ----------------
-# Keep module-level reference so other modules can import `from app.main import model`
 model = None
 
 @app.on_event("startup")
@@ -62,23 +66,16 @@ async def load_model():
     global model
     if model is None:
         try:
-            # Lazy import to avoid heavy imports at module load-time
             from sentence_transformers import SentenceTransformer
-
-            # choose a light model for constrained environments
             model = SentenceTransformer(
                 "sentence-transformers/paraphrase-MiniLM-L3-v2",
                 device="cpu"
             )
-            # expose on app.state so routes and other parts can access without circular import issues
             app.state.model = model
-
             logger.info("✅ SentenceTransformer model loaded (MiniLM-L3-v2) and exposed on app.state.model")
         except Exception as e:
             logger.error(f"❌ Failed to load model on startup: {e}")
-            # ensure app.state.model exists (None) to avoid AttributeError elsewhere
             app.state.model = None
-
 
 # ---------------- System Endpoints ----------------
 @app.get("/", tags=["System"])
@@ -107,28 +104,20 @@ async def health_check():
         "database": "connected" if db.is_connected() else "local_mode",
     }
 
-
 # ---------------- Database Seeder ----------------
 @app.post("/api/seed", tags=["System"])
 async def seed_database():
-    """Seed DB with initial data (for dev only)"""
     if not db.is_connected():
         return {"message": "Database not connected, seeding skipped"}
-
     try:
         sample_docs = [
-            {
-                "title": "Wheat Cultivation Guide",
-                "content": "Comprehensive guide for wheat cultivation including sowing, irrigation, and harvesting practices.",
-                "source_url": "https://icar.org.in/wheat-guide",
-            },
-            {
-                "title": "Tomato Disease Management",
-                "content": "Integrated pest management strategies for tomato crops including biological and chemical control methods.",
-                "source_url": "https://icar.org.in/tomato-ipm",
-            },
+            {"title": "Wheat Cultivation Guide",
+             "content": "Comprehensive guide for wheat cultivation including sowing, irrigation, and harvesting practices.",
+             "source_url": "https://icar.org.in/wheat-guide"},
+            {"title": "Tomato Disease Management",
+             "content": "Integrated pest management strategies for tomato crops including biological and chemical control methods.",
+             "source_url": "https://icar.org.in/tomato-ipm"},
         ]
-
         for doc in sample_docs:
             try:
                 db.client.table("docs").insert(doc).execute()
@@ -136,16 +125,13 @@ async def seed_database():
                 logger.warning(f"⚠️ Failed to insert doc: {e}")
 
         sample_schemes = [
-            {
-                "name": "PM-KISAN",
-                "code": "PM-KISAN",
-                "description": "Income support scheme providing ₹6000 annually",
-                "applicable_states": [],
-                "applicable_crops": [],
-                "url": "https://pmkisan.gov.in/",
-            }
+            {"name": "PM-KISAN",
+             "code": "PM-KISAN",
+             "description": "Income support scheme providing ₹6000 annually",
+             "applicable_states": [],
+             "applicable_crops": [],
+             "url": "https://pmkisan.gov.in/"},
         ]
-
         for scheme in sample_schemes:
             try:
                 db.client.table("schemes").insert(scheme).execute()
@@ -158,7 +144,6 @@ async def seed_database():
         logger.error(f"❌ Database seeding failed: {e}")
         raise HTTPException(status_code=500, detail=f"Seeding failed: {str(e)}")
 
-
 # ---------------- Analytics ----------------
 class AnalyticsEvent(BaseModel):
     event_name: str
@@ -166,14 +151,12 @@ class AnalyticsEvent(BaseModel):
 
 @app.post("/api/analytics", tags=["Analytics"])
 async def log_analytics(event: AnalyticsEvent):
-    """Log analytics events (privacy-friendly)"""
     try:
         logger.info(f"📊 Analytics event: {event.event_name}")
         return {"status": "logged"}
     except Exception as e:
         logger.error(f"❌ Analytics logging failed: {e}")
         return {"status": "failed", "error": str(e)}
-
 
 # ---------------- Global Error Handler ----------------
 @app.exception_handler(Exception)
@@ -183,7 +166,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error occurred"},
     )
-
 
 # ---------------- Run Server ----------------
 if __name__ == "__main__":
