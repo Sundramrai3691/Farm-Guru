@@ -1,7 +1,7 @@
-import logging 
+import logging
 import os
-from typing import Dict, Any
-from fastapi import FastAPI, HTTPException, Request
+from typing import Dict, Any, List
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -29,20 +29,60 @@ app = FastAPI(
 )
 
 # ---------------- CORS ----------------
-# ⚠️ Update origins for your frontend domain
-origins = [
-    "https://farm-guru-gilt.vercel.app",
-    "http://localhost:5173",  # optional for local testing
+# Preferred: whitelist only real frontend domains
+FRONTEND_ORIGINS: List[str] = [
+    os.getenv("FRONTEND_ORIGIN", "https://farm-guru-gilt.vercel.app"),
+    "http://localhost:5173",  # local dev
 ]
+
+# also allow vercel subdomains via regex (optional, safe for your case)
+allow_regex = os.getenv("ALLOW_ORIGIN_REGEX", r"^https://.*\.vercel\.app$")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://farm-guru-gilt.vercel.app"],  # frontend domain
+    allow_origins=FRONTEND_ORIGINS,     # explicit list
+    allow_origin_regex=allow_regex,     # allow vercel subdomains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Fallback HTTP middleware — ensures CORS headers are present on every response.
+# This is a safety-net: if CORSMiddleware is skipped for some reason, this will still add headers.
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    origin = request.headers.get("origin")
+    resp: Response
+    try:
+        resp = await call_next(request)
+    except Exception as e:
+        # In case of error, create a Response so headers can be attached
+        logger.error(f"Request handling failed: {e}")
+        resp = JSONResponse(status_code=500, content={"detail": "Internal server error occurred"})
+
+    # If origin is present and either allowed explicitly or matches regex, add headers.
+    allowed = False
+    if origin:
+        if origin in FRONTEND_ORIGINS:
+            allowed = True
+        else:
+            import re
+            try:
+                if re.match(allow_regex, origin):
+                    allowed = True
+            except re.error:
+                # invalid regex — fallback to not matching
+                logger.warning("Invalid ALLOW_ORIGIN_REGEX")
+    # If allowed, attach Access-Control headers (preflight-safe)
+    if allowed:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE, PATCH"
+        resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
+        resp.headers["Access-Control-Expose-Headers"] = "Content-Disposition, Content-Length"
+    return resp
+
 # ---------------- Static Files ----------------
 os.makedirs("app/static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -61,17 +101,15 @@ model = None
 
 @app.on_event("startup")
 async def load_model():
-    """Load SentenceTransformer model once on startup (lazy import)."""
     global model
     if model is None:
         try:
             from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer(
-                "sentence-transformers/paraphrase-MiniLM-L3-v2",
-                device="cpu"
-            )
+            # use the embed model configured in env if present
+            embed_model_name = os.getenv("HF_MODEL_EMBED", "sentence-transformers/paraphrase-MiniLM-L3-v2")
+            model = SentenceTransformer(embed_model_name, device="cpu")
             app.state.model = model
-            logger.info("✅ SentenceTransformer model loaded (MiniLM-L3-v2) and exposed on app.state.model")
+            logger.info(f"✅ SentenceTransformer model loaded ({embed_model_name}) and exposed on app.state.model")
         except Exception as e:
             logger.error(f"❌ Failed to load model on startup: {e}")
             app.state.model = None
