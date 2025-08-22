@@ -1,54 +1,92 @@
 import logging
 import numpy as np
-from typing import List, Dict, Any, Optional
-from sentence_transformers import SentenceTransformer
+from typing import List, Dict, Any
 from app.db import db
+import importlib
 
 logger = logging.getLogger(__name__)
 
 class DocumentRetriever:
     def __init__(self):
         self.model = None
-        self.documents = []
+        self.documents: List[Dict[str, Any]] = []
         self.embeddings = None
-        self._load_model()
+        # Try to attach any global model if available, then load documents
+        self._attach_model()
         self._load_documents()
-    
-    def _load_model(self):
-        """Load sentence transformer model for embeddings"""
+
+    def _attach_model(self):
+        """Try to attach the global SentenceTransformer from app.main if available.
+        Importing inside this function avoids circular imports at module import time.
+        If the global model becomes available after initialization, calling this again
+        will attach it and (if needed) precompute embeddings.
+        """
         try:
-            self.model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("Sentence transformer model loaded successfully")
+            main_mod = importlib.import_module("app.main")
+            global_model = getattr(main_mod, "model", None)
+            if global_model is not None:
+                # attach only if not already attached
+                if self.model is None:
+                    self.model = global_model
+                    logger.info("📎 Attached global SentenceTransformer model from app.main")
+                else:
+                    # replace if previously None but now global exists
+                    if self.model is None:
+                        self.model = global_model
+                # If model is attached and embeddings not computed yet, compute them
+                if self.model is not None and self.documents and self.embeddings is None:
+                    try:
+                        texts = [doc.get("content", "") for doc in self.documents]
+                        if texts:
+                            self.embeddings = self.model.encode(texts)
+                            logger.info("✅ Pre-computed embeddings for fallback documents after attaching global model")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to compute embeddings after attaching model: {e}")
+            else:
+                logger.debug("Global model in app.main is not set yet.")
+        except ModuleNotFoundError:
+            logger.debug("app.main not importable yet; will try to attach later.")
         except Exception as e:
-            logger.error(f"Failed to load sentence transformer: {e}")
-            self.model = None
-    
+            logger.error(f"❌ Error while trying to attach global model: {e}")
+
     def _load_documents(self):
-        """Load documents from Supabase or use fallback knowledge base"""
-        if db.is_connected():
-            try:
-                # Try to load from Supabase docs table
-                result = db.client.table("docs").select("*").execute()
-                if result.data:
-                    self.documents = result.data
-                    logger.info(f"Loaded {len(self.documents)} documents from Supabase")
-                    return
-            except Exception as e:
-                logger.error(f"Failed to load documents from Supabase: {e}")
-        
-        # Fallback to hardcoded knowledge base
+        """Load documents from Supabase or fallback knowledge base"""
+        try:
+            if db.is_connected():
+                try:
+                    result = db.client.table("docs").select("*").execute()
+                    if result.data:
+                        self.documents = result.data
+                        logger.info(f"✅ Loaded {len(self.documents)} documents from Supabase")
+                        # If model already attached, precompute embeddings
+                        if self.model and self.embeddings is None:
+                            try:
+                                texts = [doc.get("content", "") for doc in self.documents]
+                                if texts:
+                                    self.embeddings = self.model.encode(texts)
+                                    logger.info("✅ Pre-computed embeddings for Supabase documents")
+                            except Exception as e:
+                                logger.error(f"❌ Failed to compute embeddings for Supabase docs: {e}")
+                        return
+                except Exception as e:
+                    logger.error(f"❌ Failed to load documents from Supabase: {e}")
+        except Exception as e:
+            logger.error(f"❌ Error checking db connection: {e}")
+
+        # Fallback knowledge base
         self.documents = self._get_fallback_documents()
-        logger.info(f"Using fallback knowledge base with {len(self.documents)} documents")
-        
-        # Pre-compute embeddings for fallback documents
-        if self.model:
+        logger.info(f"📚 Using fallback knowledge base with {len(self.documents)} documents")
+
+        # If model attached, precompute embeddings for fallback docs
+        if self.model and self.embeddings is None:
             try:
-                texts = [doc["content"] for doc in self.documents]
-                self.embeddings = self.model.encode(texts)
-                logger.info("Pre-computed embeddings for fallback documents")
+                texts = [doc.get("content", "") for doc in self.documents]
+                if texts:
+                    self.embeddings = self.model.encode(texts)
+                    logger.info("✅ Pre-computed embeddings for fallback documents")
             except Exception as e:
-                logger.error(f"Failed to compute embeddings: {e}")
-    
+                logger.error(f"❌ Failed to compute embeddings: {e}")
+
     def _get_fallback_documents(self) -> List[Dict[str, Any]]:
         """Fallback agricultural knowledge base"""
         return [
@@ -60,7 +98,7 @@ class DocumentRetriever:
                 "snippet": "Wheat requires 4-6 irrigations during growing season at critical stages including crown root initiation, tillering, jointing, flowering, and grain filling."
             },
             {
-                "id": "2", 
+                "id": "2",
                 "title": "Tomato Pest Management",
                 "content": "Common tomato pests include whitefly, aphids, thrips, and fruit borers. Integrated pest management includes crop rotation, resistant varieties, biological control agents like Trichogramma, and need-based pesticide application. Monitor crops weekly for early detection.",
                 "url": "https://icar.org.in/tomato-pest-management",
@@ -109,78 +147,98 @@ class DocumentRetriever:
                 "snippet": "Proper harvesting, drying to 12-14% moisture, and improved storage structures significantly reduce post-harvest losses and maintain quality."
             }
         ]
-    
+
     def retrieve(self, query_text: str, k: int = 3) -> List[Dict[str, Any]]:
         """Retrieve most relevant documents for the query"""
+        # Try to attach the global model again in case it became available after init
+        self._attach_model()
+
         if not self.documents:
-            logger.warning("No documents available for retrieval")
+            logger.warning("⚠️ No documents available for retrieval")
             return []
-        
+
+        # If no model available, fallback to keyword search
         if not self.model:
-            # Simple keyword matching fallback
             return self._keyword_search(query_text, k)
-        
+
         try:
-            # Use Supabase vector search if available
+            # Try Supabase vector search if available
             if db.is_connected() and hasattr(db.client, 'rpc'):
                 try:
                     query_embedding = self.model.encode([query_text])[0].tolist()
-                    result = db.client.rpc('match_documents', {
-                        'query_embedding': query_embedding,
-                        'match_threshold': 0.3,
-                        'match_count': k
+                    result = db.client.rpc("match_documents", {
+                        "query_embedding": query_embedding,
+                        "match_threshold": 0.3,
+                        "match_count": k
                     }).execute()
-                    
+
                     if result.data:
                         return result.data
                 except Exception as e:
-                    logger.warning(f"Vector search failed, using fallback: {e}")
-            
-            # Fallback to local similarity search
+                    logger.warning(f"⚠️ Vector search failed, using fallback: {e}")
+
+            # Local similarity search
             query_embedding = self.model.encode([query_text])
-            
+
             if self.embeddings is not None:
-                # Compute cosine similarity
-                similarities = np.dot(query_embedding, self.embeddings.T).flatten()
+                # Ensure shapes align: query_embedding shape (1, dim), embeddings (N, dim)
+                try:
+                    similarities = np.dot(query_embedding, self.embeddings.T).flatten()
+                except Exception:
+                    # fallback: compute pairwise manually
+                    q = np.asarray(query_embedding).reshape(-1)
+                    sims = []
+                    for emb in self.embeddings:
+                        sims.append(float(np.dot(q, np.asarray(emb).reshape(-1))))
+                    similarities = np.array(sims)
+
                 top_indices = np.argsort(similarities)[::-1][:k]
-                
+
                 results = []
                 for idx in top_indices:
-                    doc = self.documents[idx].copy()
-                    doc['similarity'] = float(similarities[idx])
+                    doc = dict(self.documents[idx])  # shallow copy
+                    doc["similarity"] = float(similarities[idx])
                     results.append(doc)
-                
+
                 return results
             else:
-                # Fallback to keyword search
-                return self._keyword_search(query_text, k)
-                
+                # If embeddings were not computed (model attached after load but embeddings missing), compute now
+                try:
+                    texts = [doc.get("content", "") for doc in self.documents]
+                    if texts:
+                        self.embeddings = self.model.encode(texts)
+                        logger.info("✅ Computed embeddings on-demand for local documents")
+                        # Now recall retrieve to compute similarities with embeddings
+                        return self.retrieve(query_text, k)
+                except Exception as e:
+                    logger.error(f"❌ Failed to compute embeddings on-demand: {e}")
+                    return self._keyword_search(query_text, k)
+
         except Exception as e:
-            logger.error(f"Retrieval failed: {e}")
+            logger.error(f"❌ Retrieval failed: {e}")
             return self._keyword_search(query_text, k)
-    
+
     def _keyword_search(self, query_text: str, k: int) -> List[Dict[str, Any]]:
         """Simple keyword-based search fallback"""
         query_words = set(query_text.lower().split())
         scored_docs = []
-        
+
         for doc in self.documents:
             content_words = set(doc.get("content", "").lower().split())
             title_words = set(doc.get("title", "").lower().split())
-            
-            # Simple scoring: title matches worth more
+
             title_score = len(query_words.intersection(title_words)) * 2
             content_score = len(query_words.intersection(content_words))
             total_score = title_score + content_score
-            
+
             if total_score > 0:
-                doc_copy = doc.copy()
-                doc_copy['similarity'] = total_score
+                doc_copy = dict(doc)
+                doc_copy["similarity"] = total_score
                 scored_docs.append(doc_copy)
-        
-        # Sort by score and return top k
-        scored_docs.sort(key=lambda x: x['similarity'], reverse=True)
+
+        scored_docs.sort(key=lambda x: x["similarity"], reverse=True)
         return scored_docs[:k]
 
-# Global instance
+
+# 🔹 Global instance
 retriever = DocumentRetriever()

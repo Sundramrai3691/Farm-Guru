@@ -5,22 +5,21 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Import routes
 from app.routes import query, upload, weather, market, policy, chem_reco, analytics
 from app.config import DEBUG, DEMO_MODE
 from app.db import db
 
-
-# Configure logging
+# ---------------- Logging ----------------
 logging.basicConfig(
     level=logging.INFO if not DEBUG else logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
+# ---------------- FastAPI App ----------------
 app = FastAPI(
     title="Farm-Guru API",
     description="AI-powered agricultural assistant API",
@@ -29,24 +28,22 @@ app = FastAPI(
     redoc_url="/redoc" if DEBUG else None,
 )
 
-# CORS middleware (frontend + prod)
-# CORS middleware (dev: allow all origins to avoid preflight 400)
+# ---------------- CORS ----------------
+# ⚠️ Dev: allow all origins. Restrict this in prod.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],            # TEMPORARY for local dev only; restrict in prod
-    allow_origin_regex=None,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
 
-
-# Mount static files (local image storage)
+# ---------------- Static Files ----------------
 os.makedirs("app/static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# Routers
+# ---------------- Routers ----------------
 app.include_router(query.router)
 app.include_router(upload.router)
 app.include_router(weather.router)
@@ -55,7 +52,36 @@ app.include_router(policy.router)
 app.include_router(chem_reco.router)
 app.include_router(analytics.router)
 
-@app.get("/")
+# ---------------- Global Model ----------------
+# Keep module-level reference so other modules can import `from app.main import model`
+model = None
+
+@app.on_event("startup")
+async def load_model():
+    """Load SentenceTransformer model once on startup (lazy import)."""
+    global model
+    if model is None:
+        try:
+            # Lazy import to avoid heavy imports at module load-time
+            from sentence_transformers import SentenceTransformer
+
+            # choose a light model for constrained environments
+            model = SentenceTransformer(
+                "sentence-transformers/paraphrase-MiniLM-L3-v2",
+                device="cpu"
+            )
+            # expose on app.state so routes and other parts can access without circular import issues
+            app.state.model = model
+
+            logger.info("✅ SentenceTransformer model loaded (MiniLM-L3-v2) and exposed on app.state.model")
+        except Exception as e:
+            logger.error(f"❌ Failed to load model on startup: {e}")
+            # ensure app.state.model exists (None) to avoid AttributeError elsewhere
+            app.state.model = None
+
+
+# ---------------- System Endpoints ----------------
+@app.get("/", tags=["System"])
 async def root():
     return {
         "message": "Farm-Guru API is running",
@@ -73,8 +99,7 @@ async def root():
         },
     }
 
-
-@app.get("/api/health")
+@app.get("/api/health", tags=["System"])
 async def health_check():
     return {
         "status": "healthy",
@@ -83,7 +108,8 @@ async def health_check():
     }
 
 
-@app.post("/api/seed")
+# ---------------- Database Seeder ----------------
+@app.post("/api/seed", tags=["System"])
 async def seed_database():
     """Seed DB with initial data (for dev only)"""
     if not db.is_connected():
@@ -107,7 +133,7 @@ async def seed_database():
             try:
                 db.client.table("docs").insert(doc).execute()
             except Exception as e:
-                logger.warning(f"Failed to insert doc: {e}")
+                logger.warning(f"⚠️ Failed to insert doc: {e}")
 
         sample_schemes = [
             {
@@ -124,33 +150,32 @@ async def seed_database():
             try:
                 db.client.table("schemes").insert(scheme).execute()
             except Exception as e:
-                logger.warning(f"Failed to insert scheme: {e}")
+                logger.warning(f"⚠️ Failed to insert scheme: {e}")
 
         return {"message": "Database seeded successfully"}
 
     except Exception as e:
-        logger.error(f"Database seeding failed: {e}")
+        logger.error(f"❌ Database seeding failed: {e}")
         raise HTTPException(status_code=500, detail=f"Seeding failed: {str(e)}")
 
 
-# Pydantic model for analytics input
+# ---------------- Analytics ----------------
 class AnalyticsEvent(BaseModel):
     event_name: str
-    payload: Dict[str, Any] = {}
+    payload: Dict[str, Any] = Field(default_factory=dict)
 
-
-@app.post("/api/analytics")
+@app.post("/api/analytics", tags=["Analytics"])
 async def log_analytics(event: AnalyticsEvent):
     """Log analytics events (privacy-friendly)"""
     try:
-        logger.info(f"Analytics event: {event.event_name}")
-        # Fallback: you can add logic to write to local file/db if needed
+        logger.info(f"📊 Analytics event: {event.event_name}")
         return {"status": "logged"}
     except Exception as e:
-        logger.error(f"Analytics logging failed: {e}")
+        logger.error(f"❌ Analytics logging failed: {e}")
         return {"status": "failed", "error": str(e)}
 
 
+# ---------------- Global Error Handler ----------------
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}")
@@ -160,13 +185,13 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+# ---------------- Run Server ----------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8000)),   
+        port=int(os.getenv("PORT", 8000)),
         reload=DEBUG,
         log_level="info",
     )
-

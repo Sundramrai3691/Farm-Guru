@@ -9,3 +9,9 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.9
+      - key: HF_MODEL_CHAT
+        value: mistralai/Mistral-7B-Instruct-v0.2
+      - key: HF_MODEL_EMBED
+        value: sentence-transformers/all-MiniLM-L6-v2
+      - key: HF_VISION_MODEL
+        value: sentence-transformers/clip-ViT-B-32

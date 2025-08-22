@@ -4,7 +4,13 @@ import requests
 import time
 from typing import Dict, Any, List, Optional
 from requests.adapters import HTTPAdapter, Retry
-from app.config import HF_API_KEY, HF_MODEL, DEMO_MODE
+import app.config as cfg  # import config module to safely access multiple vars
+
+# --- Configuration (fall back safely to older names if present) ---
+HF_API_KEY = getattr(cfg, "HF_API_KEY", None)
+# prefer explicit chat model var if available, otherwise fall back to HF_MODEL
+HF_MODEL_CHAT = getattr(cfg, "HF_MODEL_CHAT", None) or getattr(cfg, "HF_MODEL", None)
+DEMO_MODE = getattr(cfg, "DEMO_MODE", False)
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -17,7 +23,7 @@ logger = logging.getLogger(__name__)
 class LLMClient:
     def __init__(self):
         self.api_key = HF_API_KEY
-        self.model = HF_MODEL
+        self.model = HF_MODEL_CHAT
         self.base_url = "https://api-inference.huggingface.co/models"
 
         # Setup session with retries
@@ -30,8 +36,13 @@ class LLMClient:
         )
         self.session.mount("https://", HTTPAdapter(max_retries=retries))
 
-    def query_huggingface(self, prompt: str, max_tokens: int = 256) -> Optional[str]:
-        """Query Hugging Face Inference API with retries and backoff"""
+        logger.info(f"LLMClient initialized (model={self.model}, demo_mode={DEMO_MODE})")
+
+    def query_huggingface(self, prompt: str, max_tokens: int = 256, temperature: float = 0.0) -> Optional[str]:
+        """Query Hugging Face Inference API with retries and backoff.
+
+        Returns raw text if available, otherwise None.
+        """
         if not self.api_key or not self.model:
             logger.warning("HF_API_KEY or HF_MODEL missing → skipping HF call, using fallback.")
             return None
@@ -45,34 +56,51 @@ class LLMClient:
             "inputs": prompt,
             "parameters": {
                 "max_new_tokens": max_tokens,
-                "temperature": 0.0,
+                "temperature": temperature,
                 "return_full_text": False
             }
         }
 
         url = f"{self.base_url}/{self.model}"
 
-        for attempt in range(3):  # try up to 3 times
+        for attempt in range(1, 4):  # try up to 3 attempts
             try:
+                logger.debug(f"HF request attempt {attempt} to {url}")
                 response = self.session.post(url, headers=headers, json=payload, timeout=60)
 
                 if response.status_code == 200:
                     result = response.json()
-
-                    # Handle different response formats
+                    # Handle common HF formats
+                    # 1) list of dicts: [{"generated_text": "..."}]
                     if isinstance(result, list) and len(result) > 0:
-                        if "generated_text" in result[0]:
+                        if isinstance(result[0], dict) and "generated_text" in result[0]:
                             return result[0]["generated_text"]
-                    elif isinstance(result, dict) and "generated_text" in result:
+                        # some endpoints return [{'generated_text': '...', 'error': ...}, ...]
+                        # fall through to string fallback if needed
+                    # 2) dict with generated_text
+                    if isinstance(result, dict) and "generated_text" in result:
                         return result["generated_text"]
 
+                    # 3) Some HF models return a string directly
+                    if isinstance(result, str):
+                        return result
+
+                    # 4) Unexpected format
                     logger.warning(f"Unexpected HF response format: {result}")
                     return None
 
                 elif response.status_code == 503 and "is currently loading" in response.text:
                     # Model is still loading, wait and retry
-                    logger.warning(f"Model {self.model} is loading. Retrying in {5 * (attempt+1)}s...")
-                    time.sleep(5 * (attempt + 1))
+                    wait = 5 * attempt
+                    logger.warning(f"Model {self.model} is loading. Retrying in {wait}s (attempt {attempt}/3)...")
+                    time.sleep(wait)
+                    continue
+
+                elif response.status_code == 429:
+                    # Rate limited — exponential backoff
+                    wait = 2 ** attempt
+                    logger.warning(f"Rate limited by HF (429). Sleeping {wait}s then retrying (attempt {attempt}/3).")
+                    time.sleep(wait)
                     continue
 
                 else:
@@ -80,10 +108,12 @@ class LLMClient:
                     return None
 
             except Exception as e:
-                logger.error(f"HF API request failed (attempt {attempt+1}): {e}")
-                time.sleep(2 * (attempt + 1))  # backoff and retry
+                wait = 2 * attempt
+                logger.error(f"HF API request failed (attempt {attempt}/3): {e}. Backing off {wait}s.")
+                time.sleep(wait)
 
-        return None  # after retries exhausted
+        logger.error("HF API: all retries exhausted.")
+        return None
 
     def synthesize_answer(
         self,
@@ -91,9 +121,9 @@ class LLMClient:
         retrieved_docs: List[Dict[str, Any]],
         image_context: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Synthesize answer using HF API or deterministic fallback"""
+        """Synthesize answer using HF API or deterministic fallback."""
 
-        # Try HF API first (only if DEMO_MODE is False)
+        # Try HF API first (only if not in demo mode)
         if not DEMO_MODE:
             hf_response = None
             try:
@@ -102,14 +132,14 @@ class LLMClient:
                 logger.error(f"HuggingFace API call crashed: {e}")
 
             if hf_response:
+                # If HF returned something, try to parse as JSON structured answer
                 try:
-                    # Try to parse as JSON
                     parsed = json.loads(hf_response)
                     if self._validate_response(parsed):
                         parsed["meta"] = {"mode": "ai", "model": self.model}
                         return parsed
                 except json.JSONDecodeError:
-                    # If not JSON, wrap in response format
+                    # Not JSON -> treat as plain text answer
                     return {
                         "answer": hf_response.strip(),
                         "confidence": 0.7,
@@ -118,10 +148,10 @@ class LLMClient:
                         "meta": {"mode": "ai", "model": self.model}
                     }
 
-        # Fallback to deterministic synthesis (works offline too)
+        # Fallback deterministic synthesis (works offline / demo mode)
         return self._deterministic_fallback(prompt_text, retrieved_docs, image_context)
 
-    # --- Deterministic fallback methods unchanged ---
+    # --- Deterministic fallback methods (kept as-is / unchanged logic) ---
     def _deterministic_fallback(self, prompt_text: str, retrieved_docs: List[Dict[str, Any]],
                                image_context: Optional[str] = None) -> Dict[str, Any]:
         context_snippets = []
@@ -133,7 +163,7 @@ class LLMClient:
             sources.append({
                 "title": doc.get("title", "Agricultural Resource"),
                 "url": doc.get("url", ""),
-                "snippet": doc.get("snippet", "")[:100] + "..."
+                "snippet": (doc.get("snippet", "")[:100] + "...") if doc.get("snippet") else ""
             })
 
         answer = self._generate_contextual_answer(prompt_text, context_snippets, image_context)
